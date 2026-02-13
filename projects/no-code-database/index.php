@@ -553,6 +553,9 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                     <button class="ghost" id="backToHomeBtn">Back to tables</button>
                     <button class="ghost" id="openShareModalBtn">Share</button>
                     <button class="ghost" id="openColumnsModalBtn">Columns</button>
+                    <button class="ghost" id="exportTableBtn" type="button">Export table</button>
+                    <button class="ghost" id="importTableBtn" type="button">Import table</button>
+                    <input id="importTableInput" type="file" accept="application/json,.json" hidden>
                     <button id="openMergeModalBtn">Merge related table</button>
                     <button id="openAddRowModalBtn">Add row</button>
                 </div>

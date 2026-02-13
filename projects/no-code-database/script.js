@@ -73,6 +73,9 @@ const openColumnsModalBtn = document.getElementById('openColumnsModalBtn');
 const openAddRowModalBtn = document.getElementById('openAddRowModalBtn');
 const openMergeModalBtn = document.getElementById('openMergeModalBtn');
 const openShareModalBtn = document.getElementById('openShareModalBtn');
+const exportTableBtn = document.getElementById('exportTableBtn');
+const importTableBtn = document.getElementById('importTableBtn');
+const importTableInput = document.getElementById('importTableInput');
 const openTagManagerBtn = document.getElementById('openTagManagerBtn');
 
 const tagModal = document.getElementById('tagModal');
@@ -93,6 +96,96 @@ function escapeHtml(value) {
 
 function parseOptions(raw) {
     return String(raw || '').split(',').map((p) => p.trim()).filter(Boolean);
+}
+
+function normalizeImportedTable(payload, fallbackName = 'Imported table') {
+    if (!payload || typeof payload !== 'object') return null;
+    const name = String(payload.name || fallbackName).trim() || fallbackName;
+
+    const columns = Array.isArray(payload.columns)
+        ? payload.columns
+            .filter((col) => col && typeof col === 'object' && String(col.id || '').trim() !== '')
+            .map((col) => ({ ...col, id: String(col.id).trim(), name: String(col.name || col.id).trim() || String(col.id).trim() }))
+        : [];
+
+    const columnIds = new Set(columns.map((c) => c.id));
+
+    const rows = Array.isArray(payload.rows)
+        ? payload.rows
+            .filter((row) => row && typeof row === 'object')
+            .map((row, index) => {
+                const rawValues = row.values && typeof row.values === 'object' ? row.values : {};
+                const values = {};
+                for (const [key, value] of Object.entries(rawValues)) {
+                    if (columnIds.has(key)) values[key] = value;
+                }
+                return { id: String(row.id || uid('row_import_' + index)).trim() || uid('row'), values };
+            })
+        : [];
+
+    const tagIds = Array.isArray(payload.tagIds)
+        ? payload.tagIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+
+    return { name, columns, rows, tagIds };
+}
+
+function exportCurrentTable() {
+    const table = activeTable();
+    if (!table) return;
+
+    const exportPayload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        table: {
+            name: table.name,
+            tagIds: Array.isArray(table.tagIds) ? table.tagIds : [],
+            columns: Array.isArray(table.columns) ? table.columns : [],
+            rows: Array.isArray(table.rows) ? table.rows : [],
+        },
+    };
+
+    const fileBase = String(table.name || 'table').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'table';
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileBase}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
+async function importIntoCurrentTable(file) {
+    const table = activeTable();
+    if (!table || !file) return;
+
+    const text = await file.text();
+    let parsed = null;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        window.alert('Invalid JSON file.');
+        return;
+    }
+
+    const tablePayload = parsed && typeof parsed === 'object' && parsed.table ? parsed.table : parsed;
+    const normalized = normalizeImportedTable(tablePayload, table.name);
+    if (!normalized) {
+        window.alert('Invalid table format.');
+        return;
+    }
+
+    if (!window.confirm('Importing will replace the current table columns and rows. Continue?')) return;
+
+    table.name = normalized.name;
+    table.columns = normalized.columns;
+    table.rows = normalized.rows;
+    table.tagIds = normalized.tagIds.filter((id) => state.tags.some((tag) => tag.id === id));
+
+    render();
+    await persist();
 }
 
 function contrastColor(hex) {
@@ -293,6 +386,8 @@ function renderTablePage() {
     if (openAddColumnModalBtn) openAddColumnModalBtn.disabled = !canEditTable(table);
     if (openColumnsModalBtn) openColumnsModalBtn.disabled = false;
     openMergeModalBtn.disabled = !canEditTable(table);
+    if (exportTableBtn) exportTableBtn.disabled = false;
+    if (importTableBtn) importTableBtn.disabled = !canEditTable(table);
 
     renderColumns(table);
     renderRows(table);
@@ -520,6 +615,13 @@ if (openColumnsModalBtn) openColumnsModalBtn.addEventListener('click', () => {
 if (openAddRowModalBtn) openAddRowModalBtn.addEventListener('click', () => openRowModal());
 if (openMergeModalBtn) openMergeModalBtn.addEventListener('click', openMergeModal);
 if (openShareModalBtn) openShareModalBtn.addEventListener('click', openShareModal);
+if (exportTableBtn) exportTableBtn.addEventListener('click', () => exportCurrentTable());
+if (importTableBtn) importTableBtn.addEventListener('click', () => importTableInput?.click());
+if (importTableInput) importTableInput.addEventListener('change', async () => {
+    const file = importTableInput.files && importTableInput.files[0];
+    if (file) await importIntoCurrentTable(file);
+    importTableInput.value = '';
+});
 if (openTagManagerBtn) openTagManagerBtn.addEventListener('click', openTagModal);
 
 if (columnTypeInput) columnTypeInput.addEventListener('change', () => {
