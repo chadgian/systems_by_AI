@@ -121,48 +121,6 @@ function computeRelations(array $tables): array {
     return $rels;
 }
 
-function ensureSeeded(string $username, array &$db): void {
-    $hasOwned = false;
-    foreach ($db['tables'] as $t) {
-        if (($t['owner'] ?? '') === $username) { $hasOwned = true; break; }
-    }
-    if (!$hasOwned) {
-        $sample = buildSampleTables($username);
-        $db['tables'] = array_merge($db['tables'], $sample);
-        if (!isset($db['userTags'][$username])) {
-            $db['userTags'][$username] = [
-                ['id' => 'tag_ops','name' => 'Operations','color' => '#3d7bfd'],
-                ['id' => 'tag_people','name' => 'People','color' => '#8a5cff'],
-                ['id' => 'tag_crm','name' => 'CRM','color' => '#1ea97c'],
-                ['id' => 'tag_revenue','name' => 'Revenue','color' => '#ef8f24'],
-                ['id' => 'tag_execution','name' => 'Execution','color' => '#2f9cf4'],
-                ['id' => 'tag_delivery','name' => 'Delivery','color' => '#f0528d'],
-                ['id' => 'tag_product','name' => 'Product','color' => '#5a67d8'],
-                ['id' => 'tag_roadmap','name' => 'Roadmap','color' => '#00a3a3'],
-            ];
-        }
-        if (isset($payload['tags']) && is_array($payload['tags'])) {
-            $db['userTags'][$username] = array_values(array_filter(array_map(function ($t) {
-                if (!is_array($t)) return null;
-                $id = trim((string)($t['id'] ?? ''));
-                $name = trim((string)($t['name'] ?? ''));
-                $color = trim((string)($t['color'] ?? '#d32f2f'));
-                if ($id === '' || $name === '') return null;
-                return ['id' => $id, 'name' => $name, 'color' => $color];
-            }, $payload['tags'])));
-            $validIds = array_column($db['userTags'][$username], 'id');
-            $db['tables'] = array_map(function ($table) use ($validIds) {
-                if (!isset($table['tagIds']) || !is_array($table['tagIds'])) return $table;
-                $table['tagIds'] = array_values(array_filter($table['tagIds'], fn($id) => in_array($id, $validIds, true)));
-                return $table;
-            }, $db['tables']);
-        }
-
-        $db['relations'] = computeRelations($db['tables']);
-        $db['updated_at'] = date('c');
-    }
-}
-
 function ensureDemoUsersAndData(array &$users, array &$db, string $usersFile, string $dbFile): void {
     $demoUsers = [
         'demo_alice' => 'demo1234',
@@ -256,7 +214,6 @@ if (isset($_GET['auth'])) {
         $users['users'][$username] = password_hash($password, PASSWORD_DEFAULT);
         jsonWrite($usersFile, $users);
         $_SESSION['user'] = $username;
-        ensureSeeded($username, $db);
         jsonWrite($dbFile, $db);
         echo json_encode(['ok' => true, 'username' => $username]);
         exit;
@@ -268,7 +225,6 @@ if (isset($_GET['auth'])) {
         $hash = $users['users'][$username] ?? null;
         if (!$hash || !password_verify($password, $hash)) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Invalid credentials.']); exit; }
         $_SESSION['user'] = $username;
-        ensureSeeded($username, $db);
         jsonWrite($dbFile, $db);
         echo json_encode(['ok' => true, 'username' => $username]);
         exit;
@@ -327,8 +283,6 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     header('Content-Type: application/json; charset=utf-8');
     if (!isset($_SESSION['user'])) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Unauthorized']); exit; }
     $username = $_SESSION['user'];
-
-    ensureSeeded($username, $db);
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $visible = [];

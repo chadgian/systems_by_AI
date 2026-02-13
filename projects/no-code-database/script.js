@@ -79,6 +79,7 @@ const importTableInput = document.getElementById('importTableInput');
 const openTagManagerBtn = document.getElementById('openTagManagerBtn');
 
 const tagModal = document.getElementById('tagModal');
+const tagForm = document.getElementById('tagForm');
 const tagList = document.getElementById('tagList');
 const tagNameInput = document.getElementById('tagNameInput');
 const tagColorInput = document.getElementById('tagColorInput');
@@ -834,7 +835,7 @@ if (tagFilterSelect) tagFilterSelect.addEventListener('change', render);
 if (rowSearchInput) rowSearchInput.addEventListener('input', () => { if (activeTable()) renderRows(activeTable()); });
 
 
-if (addTagBtn) addTagBtn.addEventListener('click', async () => {
+async function addTagFromInputs() {
     const name = String(tagNameInput?.value || '').trim();
     const color = String(tagColorInput?.value || '#d32f2f');
     if (!name) return;
@@ -843,6 +844,15 @@ if (addTagBtn) addTagBtn.addEventListener('click', async () => {
     renderTagManager();
     render();
     await persist();
+}
+
+if (addTagBtn) addTagBtn.addEventListener('click', async () => {
+    await addTagFromInputs();
+});
+
+if (tagForm) tagForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await addTagFromInputs();
 });
 
 if (tagList) tagList.addEventListener('click', async (event) => {

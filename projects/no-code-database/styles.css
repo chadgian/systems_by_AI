@@ -59,7 +59,9 @@
     --remarks: #c9d6fb;
 }
 
-body { margin: 0; background: linear-gradient(180deg, var(--bg-start), var(--bg-end)); color: var(--text); }
+html, body { min-height: 100%; }
+html { background: linear-gradient(180deg, var(--bg-start), var(--bg-end)); }
+body { margin: 0; background: transparent; color: var(--text); }
 .layout { width: min(1100px, 95vw); margin: 1.5rem auto; display: grid; gap: 1rem; }
 .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 14px; padding: 1rem; box-shadow: var(--card-shadow); }
 .hero { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
