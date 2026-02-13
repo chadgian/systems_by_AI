@@ -416,10 +416,7 @@ if (signupForm) signupForm.addEventListener('submit', async (event) => {
 
 if (logoutBtn) logoutBtn.addEventListener('click', async () => {
     await fetch('index.php?auth=logout', { method: 'POST' });
-    state.tables = [];
-    state.relations = [];
-    state.activeTableId = null;
-    showAuth('Logged out.');
+    window.location.href = 'index.php?page=login';
 });
 
 if (themeToggleBtn) themeToggleBtn.addEventListener('click', () => {

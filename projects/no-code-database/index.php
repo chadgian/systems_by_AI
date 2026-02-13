@@ -27,6 +27,7 @@ function buildSampleTables(string $owner): array {
     $tblTeams = "{$p}_tbl_teams";
     $tblCustomers = "{$p}_tbl_customers";
     $tblTasks = "{$p}_tbl_tasks";
+    $tblReleases = "{$p}_tbl_releases";
 
     return [
         [
@@ -82,6 +83,21 @@ function buildSampleTables(string $owner): array {
                 ['id' => 'row_task_1', 'values' => ['col_task_title' => 'Quarterly review call', 'col_due_date' => '2026-03-01', 'col_effort' => '2', 'col_priority' => 'Medium', 'col_completed' => 'No', 'col_customer_link' => 'row_customer_1', 'col_remarks' => '[2026-02-10 09:00] Kickoff complete']],
             ],
         ],
+        [
+            'id' => $tblReleases,
+            'owner' => $owner,
+            'sharedWith' => new stdClass(),
+            'name' => 'Releases',
+            'columns' => [
+                ['id' => 'col_release_name', 'name' => 'Release', 'type' => 'text'],
+                ['id' => 'col_release_date', 'name' => 'Release Date', 'type' => 'date'],
+                ['id' => 'col_release_status', 'name' => 'Status', 'type' => 'dropdown', 'options' => ['Planned', 'In Progress', 'Launched']],
+                ['id' => 'col_task_link', 'name' => 'Related Task', 'type' => 'relation', 'relation' => ['tableId' => $tblTasks, 'columnId' => 'col_task_title']],
+            ],
+            'rows' => [
+                ['id' => 'row_release_1', 'values' => ['col_release_name' => 'Q1 Rollout', 'col_release_date' => '2026-03-15', 'col_release_status' => 'Planned', 'col_task_link' => 'row_task_1']],
+            ],
+        ],
     ];
 }
 
@@ -113,6 +129,44 @@ function ensureSeeded(string $username, array &$db): void {
     }
 }
 
+function ensureDemoUsersAndData(array &$users, array &$db, string $usersFile, string $dbFile): void {
+    $demoUsers = [
+        'demo_alice' => 'demo1234',
+        'demo_bob' => 'demo1234',
+    ];
+
+    $usersChanged = false;
+    foreach ($demoUsers as $username => $password) {
+        if (!isset($users['users'][$username])) {
+            $users['users'][$username] = password_hash($password, PASSWORD_DEFAULT);
+            $usersChanged = true;
+        }
+    }
+    if ($usersChanged) jsonWrite($usersFile, $users);
+
+    $seedVersion = 'ncdb-demo-seed-v3';
+    if (($db['_seed_version'] ?? '') === $seedVersion) return;
+
+    $owners = array_keys($demoUsers);
+    $db['tables'] = array_values(array_filter($db['tables'], fn($t) => !in_array($t['owner'] ?? '', $owners, true)));
+
+    foreach ($owners as $owner) {
+        $db['tables'] = array_merge($db['tables'], buildSampleTables($owner));
+    }
+
+    foreach ($db['tables'] as &$table) {
+        if (($table['owner'] ?? '') === 'demo_alice' && ($table['name'] ?? '') === 'Releases') {
+            $table['sharedWith'] = ['demo_bob' => 'view'];
+        }
+    }
+    unset($table);
+
+    $db['relations'] = computeRelations($db['tables']);
+    $db['updated_at'] = date('c');
+    $db['_seed_version'] = $seedVersion;
+    jsonWrite($dbFile, $db);
+}
+
 function permissionFor(string $username, array $table): ?string {
     if (($table['owner'] ?? '') === $username) return 'owner';
     $shared = $table['sharedWith'] ?? [];
@@ -123,6 +177,8 @@ function permissionFor(string $username, array $table): ?string {
 $db = jsonRead($dbFile, ['tables' => [], 'relations' => [], 'updated_at' => date('c')]);
 $users = jsonRead($usersFile, ['users' => []]);
 if (!isset($users['users']) || !is_array($users['users'])) $users['users'] = [];
+
+ensureDemoUsersAndData($users, $db, $usersFile, $dbFile);
 
 if (isset($_GET['auth'])) {
     header('Content-Type: application/json; charset=utf-8');
@@ -174,6 +230,11 @@ if (isset($_GET['auth'])) {
     }
 
     if ($action === 'logout') {
+        $_SESSION = [];
+        if (ini_get('session.use_cookies')) {
+            $params = session_get_cookie_params();
+            setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+        }
         session_unset();
         session_destroy();
         echo json_encode(['ok' => true]);
@@ -318,6 +379,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         <section class="card auth-card">
             <h1>No-Code Data Builder</h1>
             <p class="muted">Please <?php echo $authPage === 'signup' ? 'create an account' : 'log in'; ?> to continue.</p>
+            <p class="muted">Demo users: <code>demo_alice / demo1234</code> and <code>demo_bob / demo1234</code>.</p>
 
             <?php if ($authPage === 'login'): ?>
                 <form id="loginForm" class="modal-form auth-single">
