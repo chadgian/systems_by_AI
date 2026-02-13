@@ -8,6 +8,7 @@ const state = {
     mergeConfig: null,
     currentUser: null,
     userDirectory: [],
+    tags: [],
 };
 
 const authView = document.getElementById('authView');
@@ -30,12 +31,13 @@ const columnList = document.getElementById('columnList');
 const dataTable = document.getElementById('dataTable');
 const tableSearchInput = document.getElementById('tableSearchInput');
 const rowSearchInput = document.getElementById('rowSearchInput');
+const tagFilterSelect = document.getElementById('tagFilterSelect');
 
 const tableModal = document.getElementById('tableModal');
 const tableForm = document.getElementById('tableForm');
 const tableModalTitle = document.getElementById('tableModalTitle');
 const tableNameInput = document.getElementById('tableNameInput');
-const tableTagsInput = document.getElementById('tableTagsInput');
+const tableTagChoices = document.getElementById('tableTagChoices');
 
 const columnModal = document.getElementById('columnModal');
 const columnForm = document.getElementById('columnForm');
@@ -69,6 +71,13 @@ const openAddColumnModalBtn = document.getElementById('openAddColumnModalBtn');
 const openAddRowModalBtn = document.getElementById('openAddRowModalBtn');
 const openMergeModalBtn = document.getElementById('openMergeModalBtn');
 const openShareModalBtn = document.getElementById('openShareModalBtn');
+const openTagManagerBtn = document.getElementById('openTagManagerBtn');
+
+const tagModal = document.getElementById('tagModal');
+const tagList = document.getElementById('tagList');
+const tagNameInput = document.getElementById('tagNameInput');
+const tagColorInput = document.getElementById('tagColorInput');
+const addTagBtn = document.getElementById('addTagBtn');
 
 const uid = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 const tableById = (id) => state.tables.find((t) => t.id === id) || null;
@@ -84,8 +93,16 @@ function parseOptions(raw) {
     return String(raw || '').split(',').map((p) => p.trim()).filter(Boolean);
 }
 
-function parseTags(raw) {
-    return String(raw || '').split(',').map((p) => p.trim()).filter(Boolean);
+function contrastColor(hex) {
+    const c = String(hex || '').replace('#', '');
+    if (c.length !== 6) return '#0f172a';
+    const r = parseInt(c.slice(0,2),16), g = parseInt(c.slice(2,4),16), b = parseInt(c.slice(4,6),16);
+    const yiq = (r*299 + g*587 + b*114) / 1000;
+    return yiq >= 140 ? '#0f172a' : '#ffffff';
+}
+
+function tagById(id) {
+    return state.tags.find((t) => t.id === id) || null;
 }
 
 function syncRoute(push = false) {
@@ -130,12 +147,24 @@ function getDisplayValue(table, col, raw) {
     return String(targetRow?.values?.[targetColumn?.id] ?? '');
 }
 
+function renderTagFilter() {
+    if (!tagFilterSelect) return;
+    const current = tagFilterSelect.value;
+    tagFilterSelect.innerHTML = '<option value="">All tags</option>' + state.tags.map((tag) => `<option value="${tag.id}">${escapeHtml(tag.name)}</option>`).join('');
+    if (state.tags.some((t) => t.id === current)) tagFilterSelect.value = current;
+}
+
 function renderHome() {
+    renderTagFilter();
     const query = String(tableSearchInput?.value || '').toLowerCase().trim();
+    const selectedTagId = String(tagFilterSelect?.value || '');
+
     const filtered = state.tables.filter((table) => {
+        const tableTagIds = Array.isArray(table.tagIds) ? table.tagIds : [];
+        if (selectedTagId && !tableTagIds.includes(selectedTagId)) return false;
         if (!query) return true;
-        const tags = Array.isArray(table.tags) ? table.tags.join(' ') : '';
-        return `${table.name || ''} ${tags}`.toLowerCase().includes(query);
+        const tagNames = tableTagIds.map((id) => tagById(id)?.name || '').join(' ');
+        return `${table.name || ''} ${tagNames}`.toLowerCase().includes(query);
     });
 
     if (!filtered.length) {
@@ -145,7 +174,13 @@ function renderHome() {
 
     tableList.innerHTML = filtered.map((table) => {
         const access = table._permission === 'owner' ? 'Owner' : (table._permission === 'edit' ? 'Shared: edit' : 'Shared: view');
-        const tags = (table.tags || []).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('');
+        const tags = (table.tagIds || []).map((id) => {
+            const tag = tagById(id);
+            if (!tag) return '';
+            const color = tag.color || '#4f7cff';
+            const text = contrastColor(color);
+            return `<span class="tag-pill" style="background:${escapeHtml(color)};color:${escapeHtml(text)};border-color:${escapeHtml(color)}">${escapeHtml(tag.name)}</span>`;
+        }).join('');
         return `<li>
             <div>
                 <strong>${escapeHtml(table.name)}</strong>
@@ -275,7 +310,7 @@ function render() {
 async function persist() {
     saveStateBadge.textContent = 'Saving...';
     const response = await fetch('index.php?api=1', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tables: state.tables, relations: state.relations }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tables: state.tables, relations: state.relations, tags: state.tags }),
     });
     saveStateBadge.textContent = response.ok ? 'Saved' : 'Save failed';
     if (response.ok) setTimeout(() => { saveStateBadge.textContent = 'Ready'; }, 800);
@@ -287,6 +322,7 @@ async function loadWorkspace() {
     const data = await response.json();
     state.tables = Array.isArray(data.tables) ? data.tables : [];
     state.relations = Array.isArray(data.relations) ? data.relations : [];
+    state.tags = Array.isArray(data.tags) ? data.tags : [];
     state.currentUser = data.currentUser || state.currentUser;
     currentUserLabel.textContent = state.currentUser ? `@${state.currentUser}` : '';
 
@@ -329,11 +365,26 @@ async function loadUsersForSharing() {
     state.userDirectory = Array.isArray(data.users) ? data.users : [];
 }
 
+function renderTagManager() {
+    if (!tagList) return;
+    if (!state.tags.length) { tagList.innerHTML = '<li>No tags yet.</li>'; return; }
+    tagList.innerHTML = state.tags.map((tag) => `<li><div><strong>${escapeHtml(tag.name)}</strong><small class="muted">${escapeHtml(tag.color)}</small></div><div class="inline-actions"><span class="tag-pill" style="background:${escapeHtml(tag.color)};color:${escapeHtml(contrastColor(tag.color))};border-color:${escapeHtml(tag.color)}">${escapeHtml(tag.name)}</span><button class="ghost" data-edit-tag="${tag.id}">Edit</button><button class="danger" data-delete-tag="${tag.id}">Delete</button></div></li>`).join('');
+}
+
+function openTagModal() {
+    renderTagManager();
+    tagModal.showModal();
+}
+
 function openTableModal(editId = null) {
     state.editingTableId = editId;
     tableModalTitle.textContent = editId ? 'Rename table' : 'Create table';
-    tableNameInput.value = editId ? tableById(editId)?.name || '' : '';
-    if (tableTagsInput) tableTagsInput.value = editId ? (tableById(editId)?.tags || []).join(', ') : '';
+    const table = editId ? tableById(editId) : null;
+    tableNameInput.value = table?.name || '';
+    if (tableTagChoices) {
+        const selected = new Set(table?.tagIds || []);
+        tableTagChoices.innerHTML = state.tags.length ? state.tags.map((tag) => `<label class="chip-option"><input type="checkbox" value="${tag.id}" ${selected.has(tag.id) ? 'checked' : ''}>${escapeHtml(tag.name)}</label>`).join('') : '<p class="muted">No tags yet. Create tags from Manage tags.</p>';
+    }
     tableModal.showModal();
 }
 
@@ -460,6 +511,7 @@ if (openAddColumnModalBtn) openAddColumnModalBtn.addEventListener('click', () =>
 if (openAddRowModalBtn) openAddRowModalBtn.addEventListener('click', () => openRowModal());
 if (openMergeModalBtn) openMergeModalBtn.addEventListener('click', openMergeModal);
 if (openShareModalBtn) openShareModalBtn.addEventListener('click', openShareModal);
+if (openTagManagerBtn) openTagManagerBtn.addEventListener('click', openTagModal);
 
 if (columnTypeInput) columnTypeInput.addEventListener('change', () => {
     dropdownOptionsInput.hidden = columnTypeInput.value !== 'dropdown';
@@ -495,13 +547,13 @@ if (mergeForm) mergeForm.addEventListener('submit', (event) => {
 if (tableForm) tableForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const name = tableNameInput.value.trim();
-    const tags = parseTags(tableTagsInput?.value || '');
+    const tagIds = tableTagChoices ? Array.from(tableTagChoices.querySelectorAll('input:checked')).map((el) => el.value) : [];
     if (!name) return;
 
     if (state.editingTableId) {
         const table = tableById(state.editingTableId);
-        if (table && isOwnerTable(table)) { table.name = name; table.tags = tags; }
-    } else state.tables.push({ id: uid('tbl'), name, tags, columns: [], rows: [], _permission: 'owner', _owner: state.currentUser, _sharedWith: {} });
+        if (table && isOwnerTable(table)) { table.name = name; table.tagIds = tagIds; }
+    } else state.tables.push({ id: uid('tbl'), name, tagIds, columns: [], rows: [], _permission: 'owner', _owner: state.currentUser, _sharedWith: {} });
 
     tableModal.close(); render(); await persist();
 });
@@ -667,7 +719,47 @@ if (dataTable) dataTable.addEventListener('click', async (event) => {
 });
 
 if (tableSearchInput) tableSearchInput.addEventListener('input', render);
+if (tagFilterSelect) tagFilterSelect.addEventListener('change', render);
 if (rowSearchInput) rowSearchInput.addEventListener('input', () => { if (activeTable()) renderRows(activeTable()); });
+
+
+if (addTagBtn) addTagBtn.addEventListener('click', async () => {
+    const name = String(tagNameInput?.value || '').trim();
+    const color = String(tagColorInput?.value || '#4f7cff');
+    if (!name) return;
+    state.tags.push({ id: uid('tag'), name, color });
+    if (tagNameInput) tagNameInput.value = '';
+    renderTagManager();
+    render();
+    await persist();
+});
+
+if (tagList) tagList.addEventListener('click', async (event) => {
+    const editBtn = event.target.closest('[data-edit-tag]');
+    if (editBtn) {
+        const tag = state.tags.find((t) => t.id === editBtn.dataset.editTag);
+        if (!tag) return;
+        const name = window.prompt('Tag name:', tag.name);
+        if (!name || !name.trim()) return;
+        tag.name = name.trim();
+        const color = window.prompt('Tag color hex:', tag.color || '#4f7cff');
+        if (color && color.trim()) tag.color = color.trim();
+        renderTagManager();
+        render();
+        await persist();
+        return;
+    }
+
+    const delBtn = event.target.closest('[data-delete-tag]');
+    if (!delBtn) return;
+    if (!window.confirm('Delete this tag? It will be removed from all your tables.')) return;
+    const tagId = delBtn.dataset.deleteTag;
+    state.tags = state.tags.filter((t) => t.id !== tagId);
+    state.tables = state.tables.map((table) => ({ ...table, tagIds: (table.tagIds || []).filter((id) => id !== tagId) }));
+    renderTagManager();
+    render();
+    await persist();
+});
 
 window.addEventListener('popstate', () => {
     const url = new URL(window.location.href);

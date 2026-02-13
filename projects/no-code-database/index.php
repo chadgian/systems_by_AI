@@ -35,7 +35,7 @@ function buildSampleTables(string $owner): array {
             'owner' => $owner,
             'sharedWith' => new stdClass(),
             'name' => 'Teams',
-            'tags' => ['Operations', 'People'],
+            'tagIds' => ['tag_ops', 'tag_people'],
             'columns' => [
                 ['id' => 'col_team_name', 'name' => 'Team Name', 'type' => 'text'],
                 ['id' => 'col_region', 'name' => 'Region', 'type' => 'dropdown', 'options' => ['North', 'South', 'West', 'Remote']],
@@ -52,7 +52,7 @@ function buildSampleTables(string $owner): array {
             'owner' => $owner,
             'sharedWith' => new stdClass(),
             'name' => 'Customers',
-            'tags' => ['CRM', 'Revenue'],
+            'tagIds' => ['tag_crm', 'tag_revenue'],
             'columns' => [
                 ['id' => 'col_customer_name', 'name' => 'Customer Name', 'type' => 'text'],
                 ['id' => 'col_email', 'name' => 'Email', 'type' => 'text'],
@@ -72,7 +72,7 @@ function buildSampleTables(string $owner): array {
             'owner' => $owner,
             'sharedWith' => new stdClass(),
             'name' => 'Tasks',
-            'tags' => ['Execution', 'Delivery'],
+            'tagIds' => ['tag_execution', 'tag_delivery'],
             'columns' => [
                 ['id' => 'col_task_title', 'name' => 'Task', 'type' => 'text'],
                 ['id' => 'col_due_date', 'name' => 'Due Date', 'type' => 'date'],
@@ -91,7 +91,7 @@ function buildSampleTables(string $owner): array {
             'owner' => $owner,
             'sharedWith' => new stdClass(),
             'name' => 'Releases',
-            'tags' => ['Product', 'Roadmap'],
+            'tagIds' => ['tag_product', 'tag_roadmap'],
             'columns' => [
                 ['id' => 'col_release_name', 'name' => 'Release', 'type' => 'text'],
                 ['id' => 'col_release_date', 'name' => 'Release Date', 'type' => 'date'],
@@ -127,7 +127,37 @@ function ensureSeeded(string $username, array &$db): void {
         if (($t['owner'] ?? '') === $username) { $hasOwned = true; break; }
     }
     if (!$hasOwned) {
-        $db['tables'] = array_merge($db['tables'], buildSampleTables($username));
+        $sample = buildSampleTables($username);
+        $db['tables'] = array_merge($db['tables'], $sample);
+        if (!isset($db['userTags'][$username])) {
+            $db['userTags'][$username] = [
+                ['id' => 'tag_ops','name' => 'Operations','color' => '#3d7bfd'],
+                ['id' => 'tag_people','name' => 'People','color' => '#8a5cff'],
+                ['id' => 'tag_crm','name' => 'CRM','color' => '#1ea97c'],
+                ['id' => 'tag_revenue','name' => 'Revenue','color' => '#ef8f24'],
+                ['id' => 'tag_execution','name' => 'Execution','color' => '#2f9cf4'],
+                ['id' => 'tag_delivery','name' => 'Delivery','color' => '#f0528d'],
+                ['id' => 'tag_product','name' => 'Product','color' => '#5a67d8'],
+                ['id' => 'tag_roadmap','name' => 'Roadmap','color' => '#00a3a3'],
+            ];
+        }
+        if (isset($payload['tags']) && is_array($payload['tags'])) {
+            $db['userTags'][$username] = array_values(array_filter(array_map(function ($t) {
+                if (!is_array($t)) return null;
+                $id = trim((string)($t['id'] ?? ''));
+                $name = trim((string)($t['name'] ?? ''));
+                $color = trim((string)($t['color'] ?? '#4f7cff'));
+                if ($id === '' || $name === '') return null;
+                return ['id' => $id, 'name' => $name, 'color' => $color];
+            }, $payload['tags'])));
+            $validIds = array_column($db['userTags'][$username], 'id');
+            $db['tables'] = array_map(function ($table) use ($validIds) {
+                if (!isset($table['tagIds']) || !is_array($table['tagIds'])) return $table;
+                $table['tagIds'] = array_values(array_filter($table['tagIds'], fn($id) => in_array($id, $validIds, true)));
+                return $table;
+            }, $db['tables']);
+        }
+
         $db['relations'] = computeRelations($db['tables']);
         $db['updated_at'] = date('c');
     }
@@ -148,7 +178,7 @@ function ensureDemoUsersAndData(array &$users, array &$db, string $usersFile, st
     }
     if ($usersChanged) jsonWrite($usersFile, $users);
 
-    $seedVersion = 'ncdb-demo-seed-v3';
+    $seedVersion = 'ncdb-demo-seed-v4';
     if (($db['_seed_version'] ?? '') === $seedVersion) return;
 
     $owners = array_keys($demoUsers);
@@ -156,6 +186,16 @@ function ensureDemoUsersAndData(array &$users, array &$db, string $usersFile, st
 
     foreach ($owners as $owner) {
         $db['tables'] = array_merge($db['tables'], buildSampleTables($owner));
+        $db['userTags'][$owner] = [
+            ['id' => 'tag_ops','name' => 'Operations','color' => '#3d7bfd'],
+            ['id' => 'tag_people','name' => 'People','color' => '#8a5cff'],
+            ['id' => 'tag_crm','name' => 'CRM','color' => '#1ea97c'],
+            ['id' => 'tag_revenue','name' => 'Revenue','color' => '#ef8f24'],
+            ['id' => 'tag_execution','name' => 'Execution','color' => '#2f9cf4'],
+            ['id' => 'tag_delivery','name' => 'Delivery','color' => '#f0528d'],
+            ['id' => 'tag_product','name' => 'Product','color' => '#5a67d8'],
+            ['id' => 'tag_roadmap','name' => 'Roadmap','color' => '#00a3a3'],
+        ];
     }
 
     foreach ($db['tables'] as &$table) {
@@ -178,9 +218,10 @@ function permissionFor(string $username, array $table): ?string {
     return null;
 }
 
-$db = jsonRead($dbFile, ['tables' => [], 'relations' => [], 'updated_at' => date('c')]);
+$db = jsonRead($dbFile, ['tables' => [], 'relations' => [], 'userTags' => [], 'updated_at' => date('c')]);
 $users = jsonRead($usersFile, ['users' => []]);
 if (!isset($users['users']) || !is_array($users['users'])) $users['users'] = [];
+if (!isset($db['userTags']) || !is_array($db['userTags'])) $db['userTags'] = [];
 
 ensureDemoUsersAndData($users, $db, $usersFile, $dbFile);
 
@@ -304,7 +345,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
 
         $relations = array_values(array_filter(computeRelations($db['tables']), fn($r) => isset($visibleIds[$r['fromTableId']], $visibleIds[$r['toTableId']])));
         jsonWrite($dbFile, $db);
-        echo json_encode(['tables' => $visible, 'relations' => $relations, 'updated_at' => $db['updated_at'], 'currentUser' => $username]);
+        echo json_encode(['tables' => $visible, 'relations' => $relations, 'tags' => array_values($db['userTags'][$username] ?? []), 'updated_at' => $db['updated_at'], 'currentUser' => $username]);
         exit;
     }
 
@@ -330,7 +371,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             $sanitized = [
                 'id' => $id,
                 'name' => (string)($table['name'] ?? 'Untitled table'),
-                'tags' => array_values(array_filter(array_map(fn($x) => trim((string)$x), is_array($table['tags'] ?? null) ? $table['tags'] : []))),
+                'tagIds' => array_values(array_filter(array_map(fn($x) => trim((string)$x), is_array($table['tagIds'] ?? null) ? $table['tagIds'] : []))),
                 'columns' => is_array($table['columns'] ?? null) ? $table['columns'] : [],
                 'rows' => is_array($table['rows'] ?? null) ? $table['rows'] : [],
             ];
@@ -355,6 +396,23 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             if (($t['owner'] ?? '') !== $username) return true;
             return isset($incomingIds[$id]);
         }));
+
+        if (isset($payload['tags']) && is_array($payload['tags'])) {
+            $db['userTags'][$username] = array_values(array_filter(array_map(function ($t) {
+                if (!is_array($t)) return null;
+                $id = trim((string)($t['id'] ?? ''));
+                $name = trim((string)($t['name'] ?? ''));
+                $color = trim((string)($t['color'] ?? '#4f7cff'));
+                if ($id === '' || $name === '') return null;
+                return ['id' => $id, 'name' => $name, 'color' => $color];
+            }, $payload['tags'])));
+            $validIds = array_column($db['userTags'][$username], 'id');
+            $db['tables'] = array_map(function ($table) use ($validIds) {
+                if (!isset($table['tagIds']) || !is_array($table['tagIds'])) return $table;
+                $table['tagIds'] = array_values(array_filter($table['tagIds'], fn($id) => in_array($id, $validIds, true)));
+                return $table;
+            }, $db['tables']);
+        }
 
         $db['relations'] = computeRelations($db['tables']);
         $db['updated_at'] = date('c');
@@ -474,9 +532,17 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         <section class="card" id="homeView">
             <div class="section-head">
                 <h2>Tables</h2>
-                <button id="openCreateTableModalBtn">Create table</button>
+                <div class="inline-actions">
+                    <button class="ghost" id="openTagManagerBtn">Manage tags</button>
+                    <button id="openCreateTableModalBtn">Create table</button>
+                </div>
             </div>
-            <input id="tableSearchInput" type="search" placeholder="Search tables by name or tag">
+            <div class="inline-actions">
+                <input id="tableSearchInput" type="search" placeholder="Search tables by name or tag">
+                <select id="tagFilterSelect">
+                    <option value="">All tags</option>
+                </select>
+            </div>
             <ul id="tableList" class="list"></ul>
         </section>
 
@@ -507,11 +573,13 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         </section>
     </main>
 
-    <dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><input id="tableTagsInput" type="text" placeholder="Tags (comma separated): CRM, Sales"><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
+    <dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><div id="tableTagChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="columnModal" class="modal"><form method="dialog" id="columnForm" class="modal-form"><h3 id="columnModalTitle">Add column</h3><input id="columnNameInput" type="text" placeholder="Column name" required><select id="columnTypeInput"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="yesno">Yes / No</option><option value="dropdown">Dropdown</option><option value="relation">Relation</option><option value="remarks">Remarks (timestamped append)</option></select><input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden><div id="relationConfig" class="row" hidden><select id="relationTableInput"></select><select id="relationColumnInput"></select></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveColumnBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="rowModal" class="modal"><form method="dialog" id="rowForm" class="modal-form"><h3 id="rowModalTitle">Add row</h3><div id="rowFields"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveRowBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="mergeModal" class="modal"><form method="dialog" id="mergeForm" class="modal-form"><h3>Merge related table</h3><p class="muted">Choose a relation column from this table, then choose columns from the linked table.</p><select id="mergeRelationSelect"></select><div id="mergeColumnChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="applyMergeBtn" value="default">Apply merge</button></menu></form></dialog>
     <dialog id="shareModal" class="modal"><form method="dialog" id="shareForm" class="modal-form"><h3>Share table</h3><p class="muted">Choose users and permission level.</p><div id="shareUsersList" class="share-grid"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveShareBtn" value="default">Save sharing</button></menu></form></dialog>
+
+    <dialog id="tagModal" class="modal"><form method="dialog" id="tagForm" class="modal-form"><h3>Manage tags</h3><div class="row"><input id="tagNameInput" type="text" placeholder="Tag name"><input id="tagColorInput" type="color" value="#4f7cff"><button id="addTagBtn" type="button">Add tag</button></div><div id="tagList" class="list"></div><menu><button value="cancel" class="ghost">Close</button></menu></form></dialog>
 
     <script src="script.js"></script>
 <?php endif; ?>
