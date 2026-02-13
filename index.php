@@ -47,8 +47,8 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
         }
         body {
             margin: 0;
-            background: linear-gradient(180deg, #f3f6ff 0%, #eef3ff 100%);
-            color: #1a2340;
+            background: linear-gradient(180deg, #24305E 0%, #1a2340 100%);
+            color: #24305E;
         }
         .wrap {
             width: min(980px, 94vw);
@@ -57,59 +57,59 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
             gap: 1.1rem;
         }
         .panel {
-            background: #fff;
+            background: #ffffff;
             border-radius: 16px;
-            border: 1px solid #d9e2f5;
-            box-shadow: 0 14px 28px rgba(31, 53, 104, 0.08);
+            border: 1px solid rgba(36, 48, 94, 0.2);
+            box-shadow: 0 14px 28px rgba(36, 48, 94, 0.18);
             padding: 1.2rem;
         }
         h1 { margin: 0 0 .4rem; }
-        .muted { color: #5f6f94; margin: 0; }
+        .muted { color: #4f5f87; margin: 0; }
         .stats { display: flex; gap: 1rem; flex-wrap: wrap; }
         .chip {
-            background: #edf2ff;
-            color: #2f4ea0;
+            background: rgba(36, 48, 94, 0.1);
+            color: #24305E;
             border-radius: 999px;
             padding: .35rem .7rem;
             font-weight: 600;
         }
         .project-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .65rem; }
         .project-item {
-            border: 1px solid #e1e8f7;
+            border: 1px solid rgba(36, 48, 94, 0.15);
             border-radius: 12px;
             padding: .9rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
             gap: .8rem;
-            background: #fbfcff;
+            background: #f7f8fc;
             transition: transform .15s ease, box-shadow .2s ease;
         }
         .project-item:hover {
             transform: translateY(-1px);
-            box-shadow: 0 8px 18px rgba(53, 96, 255, 0.12);
+            box-shadow: 0 8px 18px rgba(36, 48, 94, 0.18);
         }
         .project-name { font-weight: 700; }
-        .project-meta { color: #5f6f94; font-size: .92rem; }
+        .project-meta { color: #4f5f87; font-size: .92rem; }
         a.button {
             text-decoration: none;
-            background: #3560ff;
+            background: #d32f2f;
             color: white;
             padding: .5rem .78rem;
             border-radius: 8px;
             font-weight: 600;
             white-space: nowrap;
-            box-shadow: 0 4px 10px rgba(53, 96, 255, 0.25);
+            box-shadow: 0 4px 10px rgba(211, 47, 47, 0.28);
         }
-        a.button:hover { background: #244ae0; }
+        a.button:hover { background: #b71c1c; }
         a.button:focus-visible,
         .disabled:focus-visible {
-            outline: 3px solid #8aa3ff;
+            outline: 3px solid #d32f2f;
             outline-offset: 2px;
         }
         .disabled {
-            background: #eef1f9;
-            color: #677498;
+            background: rgba(36, 48, 94, 0.1);
+            color: #56648a;
             padding: .45rem .72rem;
             border-radius: 8px;
             font-weight: 600;
