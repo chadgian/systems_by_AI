@@ -111,3 +111,9 @@ input, select { background: var(--card-bg); color: var(--text); }
     .hero, .section-head, .list li { flex-direction: column; align-items: flex-start; }
     .hero-actions { justify-content: flex-start; }
 }
+
+
+.auth-card { max-width: 900px; margin: 8vh auto; }
+.auth-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .9rem; }
+.share-grid { display: grid; gap: .5rem; }
+.share-grid .chip-option { justify-content: space-between; align-items: center; }

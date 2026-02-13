@@ -1,107 +1,299 @@
 <?php
-$storageFile = __DIR__ . '/data/workspace.json';
+session_start();
 
-function buildSampleWorkspace(): array {
+$dataDir = __DIR__ . '/data';
+$usersFile = $dataDir . '/users.json';
+$dbFile = $dataDir . '/database.json';
+
+function jsonRead(string $path, array $fallback): array {
+    if (!is_file($path)) return $fallback;
+    $raw = file_get_contents($path);
+    $decoded = json_decode($raw ?: '', true);
+    return is_array($decoded) ? $decoded : $fallback;
+}
+
+function jsonWrite(string $path, array $data): void {
+    $dir = dirname($path);
+    if (!is_dir($dir)) mkdir($dir, 0775, true);
+    file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+}
+
+function usernamePrefix(string $username): string {
+    return 'u_' . substr(md5(strtolower($username)), 0, 8);
+}
+
+function buildSampleTables(string $owner): array {
+    $p = usernamePrefix($owner);
+    $tblTeams = "{$p}_tbl_teams";
+    $tblCustomers = "{$p}_tbl_customers";
+    $tblTasks = "{$p}_tbl_tasks";
+
     return [
-        'tables' => [
-            [
-                'id' => 'tbl_teams',
-                'name' => 'Teams',
-                'columns' => [
-                    ['id' => 'col_team_name', 'name' => 'Team Name', 'type' => 'text'],
-                    ['id' => 'col_region', 'name' => 'Region', 'type' => 'dropdown', 'options' => ['North', 'South', 'West', 'Remote']],
-                    ['id' => 'col_active', 'name' => 'Active', 'type' => 'yesno'],
-                ],
-                'rows' => [
-                    ['id' => 'row_team_1', 'values' => ['col_team_name' => 'Growth', 'col_region' => 'North', 'col_active' => 'Yes']],
-                    ['id' => 'row_team_2', 'values' => ['col_team_name' => 'Customer Success', 'col_region' => 'Remote', 'col_active' => 'Yes']],
-                    ['id' => 'row_team_3', 'values' => ['col_team_name' => 'Ops', 'col_region' => 'West', 'col_active' => 'No']],
-                ],
+        [
+            'id' => $tblTeams,
+            'owner' => $owner,
+            'sharedWith' => new stdClass(),
+            'name' => 'Teams',
+            'columns' => [
+                ['id' => 'col_team_name', 'name' => 'Team Name', 'type' => 'text'],
+                ['id' => 'col_region', 'name' => 'Region', 'type' => 'dropdown', 'options' => ['North', 'South', 'West', 'Remote']],
+                ['id' => 'col_active', 'name' => 'Active', 'type' => 'yesno'],
             ],
-            [
-                'id' => 'tbl_customers',
-                'name' => 'Customers',
-                'columns' => [
-                    ['id' => 'col_customer_name', 'name' => 'Customer Name', 'type' => 'text'],
-                    ['id' => 'col_email', 'name' => 'Email', 'type' => 'text'],
-                    ['id' => 'col_signup_date', 'name' => 'Signup Date', 'type' => 'date'],
-                    ['id' => 'col_lifetime_value', 'name' => 'Lifetime Value', 'type' => 'number'],
-                    ['id' => 'col_newsletter', 'name' => 'Newsletter Opt-In', 'type' => 'yesno'],
-                    ['id' => 'col_status', 'name' => 'Status', 'type' => 'dropdown', 'options' => ['New', 'Active', 'At Risk', 'Churned']],
-                    ['id' => 'col_team_link', 'name' => 'Owner Team', 'type' => 'relation', 'relation' => ['tableId' => 'tbl_teams', 'columnId' => 'col_team_name']],
-                ],
-                'rows' => [
-                    ['id' => 'row_customer_1', 'values' => ['col_customer_name' => 'Acme Foods', 'col_email' => 'ops@acmefoods.com', 'col_signup_date' => '2024-01-12', 'col_lifetime_value' => '24300', 'col_newsletter' => 'Yes', 'col_status' => 'Active', 'col_team_link' => 'row_team_1']],
-                    ['id' => 'row_customer_2', 'values' => ['col_customer_name' => 'Blue River Labs', 'col_email' => 'team@blueriver.io', 'col_signup_date' => '2024-03-02', 'col_lifetime_value' => '7600', 'col_newsletter' => 'No', 'col_status' => 'At Risk', 'col_team_link' => 'row_team_2']],
-                    ['id' => 'row_customer_3', 'values' => ['col_customer_name' => 'Northwind Retail', 'col_email' => 'it@northwindretail.com', 'col_signup_date' => '2023-10-30', 'col_lifetime_value' => '41120', 'col_newsletter' => 'Yes', 'col_status' => 'Active', 'col_team_link' => 'row_team_1']],
-                ],
-            ],
-            [
-                'id' => 'tbl_tasks',
-                'name' => 'Tasks',
-                'columns' => [
-                    ['id' => 'col_task_title', 'name' => 'Task', 'type' => 'text'],
-                    ['id' => 'col_due_date', 'name' => 'Due Date', 'type' => 'date'],
-                    ['id' => 'col_effort', 'name' => 'Effort (hrs)', 'type' => 'number'],
-                    ['id' => 'col_priority', 'name' => 'Priority', 'type' => 'dropdown', 'options' => ['Low', 'Medium', 'High']],
-                    ['id' => 'col_completed', 'name' => 'Completed', 'type' => 'yesno'],
-                    ['id' => 'col_customer_link', 'name' => 'Customer', 'type' => 'relation', 'relation' => ['tableId' => 'tbl_customers', 'columnId' => 'col_customer_name']],
-                    ['id' => 'col_remarks', 'name' => 'Remarks', 'type' => 'remarks'],
-                ],
-                'rows' => [
-                    ['id' => 'row_task_1', 'values' => ['col_task_title' => 'Quarterly review call', 'col_due_date' => '2026-03-01', 'col_effort' => '2', 'col_priority' => 'Medium', 'col_completed' => 'No', 'col_customer_link' => 'row_customer_1', 'col_remarks' => '[2026-02-10 09:00] Kickoff complete']],
-                    ['id' => 'row_task_2', 'values' => ['col_task_title' => 'Billing migration follow-up', 'col_due_date' => '2026-02-20', 'col_effort' => '4', 'col_priority' => 'High', 'col_completed' => 'No', 'col_customer_link' => 'row_customer_2', 'col_remarks' => '[2026-02-11 14:15] Waiting on billing owner']],
-                    ['id' => 'row_task_3', 'values' => ['col_task_title' => 'Onboarding checklist closeout', 'col_due_date' => '2026-02-15', 'col_effort' => '1', 'col_priority' => 'Low', 'col_completed' => 'Yes', 'col_customer_link' => 'row_customer_3', 'col_remarks' => '[2026-02-09 11:45] Customer confirmed migration']],
-                ],
+            'rows' => [
+                ['id' => 'row_team_1', 'values' => ['col_team_name' => 'Growth', 'col_region' => 'North', 'col_active' => 'Yes']],
+                ['id' => 'row_team_2', 'values' => ['col_team_name' => 'Customer Success', 'col_region' => 'Remote', 'col_active' => 'Yes']],
+                ['id' => 'row_team_3', 'values' => ['col_team_name' => 'Ops', 'col_region' => 'West', 'col_active' => 'No']],
             ],
         ],
-        'relations' => [
-            ['fromTableId' => 'tbl_customers', 'fromColumnId' => 'col_team_link', 'toTableId' => 'tbl_teams', 'toColumnId' => 'col_team_name'],
-            ['fromTableId' => 'tbl_tasks', 'fromColumnId' => 'col_customer_link', 'toTableId' => 'tbl_customers', 'toColumnId' => 'col_customer_name'],
+        [
+            'id' => $tblCustomers,
+            'owner' => $owner,
+            'sharedWith' => new stdClass(),
+            'name' => 'Customers',
+            'columns' => [
+                ['id' => 'col_customer_name', 'name' => 'Customer Name', 'type' => 'text'],
+                ['id' => 'col_email', 'name' => 'Email', 'type' => 'text'],
+                ['id' => 'col_signup_date', 'name' => 'Signup Date', 'type' => 'date'],
+                ['id' => 'col_lifetime_value', 'name' => 'Lifetime Value', 'type' => 'number'],
+                ['id' => 'col_newsletter', 'name' => 'Newsletter Opt-In', 'type' => 'yesno'],
+                ['id' => 'col_status', 'name' => 'Status', 'type' => 'dropdown', 'options' => ['New', 'Active', 'At Risk', 'Churned']],
+                ['id' => 'col_team_link', 'name' => 'Owner Team', 'type' => 'relation', 'relation' => ['tableId' => $tblTeams, 'columnId' => 'col_team_name']],
+            ],
+            'rows' => [
+                ['id' => 'row_customer_1', 'values' => ['col_customer_name' => 'Acme Foods', 'col_email' => 'ops@acmefoods.com', 'col_signup_date' => '2024-01-12', 'col_lifetime_value' => '24300', 'col_newsletter' => 'Yes', 'col_status' => 'Active', 'col_team_link' => 'row_team_1']],
+                ['id' => 'row_customer_2', 'values' => ['col_customer_name' => 'Blue River Labs', 'col_email' => 'team@blueriver.io', 'col_signup_date' => '2024-03-02', 'col_lifetime_value' => '7600', 'col_newsletter' => 'No', 'col_status' => 'At Risk', 'col_team_link' => 'row_team_2']],
+            ],
         ],
-        'updated_at' => date('c'),
+        [
+            'id' => $tblTasks,
+            'owner' => $owner,
+            'sharedWith' => new stdClass(),
+            'name' => 'Tasks',
+            'columns' => [
+                ['id' => 'col_task_title', 'name' => 'Task', 'type' => 'text'],
+                ['id' => 'col_due_date', 'name' => 'Due Date', 'type' => 'date'],
+                ['id' => 'col_effort', 'name' => 'Effort (hrs)', 'type' => 'number'],
+                ['id' => 'col_priority', 'name' => 'Priority', 'type' => 'dropdown', 'options' => ['Low', 'Medium', 'High']],
+                ['id' => 'col_completed', 'name' => 'Completed', 'type' => 'yesno'],
+                ['id' => 'col_customer_link', 'name' => 'Customer', 'type' => 'relation', 'relation' => ['tableId' => $tblCustomers, 'columnId' => 'col_customer_name']],
+                ['id' => 'col_remarks', 'name' => 'Remarks', 'type' => 'remarks'],
+            ],
+            'rows' => [
+                ['id' => 'row_task_1', 'values' => ['col_task_title' => 'Quarterly review call', 'col_due_date' => '2026-03-01', 'col_effort' => '2', 'col_priority' => 'Medium', 'col_completed' => 'No', 'col_customer_link' => 'row_customer_1', 'col_remarks' => '[2026-02-10 09:00] Kickoff complete']],
+            ],
+        ],
     ];
 }
 
-$defaultData = buildSampleWorkspace();
+function computeRelations(array $tables): array {
+    $rels = [];
+    foreach ($tables as $table) {
+        foreach (($table['columns'] ?? []) as $col) {
+            if (($col['type'] ?? '') !== 'relation' || !isset($col['relation']['tableId'], $col['relation']['columnId'])) continue;
+            $rels[] = [
+                'fromTableId' => $table['id'],
+                'fromColumnId' => $col['id'],
+                'toTableId' => $col['relation']['tableId'],
+                'toColumnId' => $col['relation']['columnId'],
+            ];
+        }
+    }
+    return $rels;
+}
+
+function ensureSeeded(string $username, array &$db): void {
+    $hasOwned = false;
+    foreach ($db['tables'] as $t) {
+        if (($t['owner'] ?? '') === $username) { $hasOwned = true; break; }
+    }
+    if (!$hasOwned) {
+        $db['tables'] = array_merge($db['tables'], buildSampleTables($username));
+        $db['relations'] = computeRelations($db['tables']);
+        $db['updated_at'] = date('c');
+    }
+}
+
+function permissionFor(string $username, array $table): ?string {
+    if (($table['owner'] ?? '') === $username) return 'owner';
+    $shared = $table['sharedWith'] ?? [];
+    if (is_array($shared) && isset($shared[$username]) && in_array($shared[$username], ['view', 'edit'], true)) return $shared[$username];
+    return null;
+}
+
+$db = jsonRead($dbFile, ['tables' => [], 'relations' => [], 'updated_at' => date('c')]);
+$users = jsonRead($usersFile, ['users' => []]);
+if (!isset($users['users']) || !is_array($users['users'])) $users['users'] = [];
+
+if (isset($_GET['auth'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    $action = $_GET['auth'];
+
+    if ($action === 'me') {
+        echo json_encode(['ok' => true, 'authenticated' => isset($_SESSION['user']), 'username' => $_SESSION['user'] ?? null]);
+        exit;
+    }
+
+    if ($action === 'users') {
+        if (!isset($_SESSION['user'])) { http_response_code(401); echo json_encode(['ok' => false]); exit; }
+        $current = $_SESSION['user'];
+        $list = array_values(array_filter(array_keys($users['users']), fn($u) => $u !== $current));
+        sort($list);
+        echo json_encode(['ok' => true, 'users' => $list]);
+        exit;
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); echo json_encode(['ok' => false]); exit; }
+    $payload = json_decode(file_get_contents('php://input') ?: '', true);
+
+    if ($action === 'signup') {
+        $username = trim((string)($payload['username'] ?? ''));
+        $password = (string)($payload['password'] ?? '');
+        if (!preg_match('/^[A-Za-z0-9_]{3,30}$/', $username)) { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'Username must be 3-30 chars (letters, numbers, underscore).']); exit; }
+        if (strlen($password) < 6) { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'Password must be at least 6 characters.']); exit; }
+        if (isset($users['users'][$username])) { http_response_code(409); echo json_encode(['ok' => false, 'message' => 'Username already exists.']); exit; }
+
+        $users['users'][$username] = password_hash($password, PASSWORD_DEFAULT);
+        jsonWrite($usersFile, $users);
+        $_SESSION['user'] = $username;
+        ensureSeeded($username, $db);
+        jsonWrite($dbFile, $db);
+        echo json_encode(['ok' => true, 'username' => $username]);
+        exit;
+    }
+
+    if ($action === 'login') {
+        $username = trim((string)($payload['username'] ?? ''));
+        $password = (string)($payload['password'] ?? '');
+        $hash = $users['users'][$username] ?? null;
+        if (!$hash || !password_verify($password, $hash)) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Invalid credentials.']); exit; }
+        $_SESSION['user'] = $username;
+        ensureSeeded($username, $db);
+        jsonWrite($dbFile, $db);
+        echo json_encode(['ok' => true, 'username' => $username]);
+        exit;
+    }
+
+    if ($action === 'logout') {
+        session_unset();
+        session_destroy();
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    http_response_code(404);
+    echo json_encode(['ok' => false]);
+    exit;
+}
+
+if (isset($_GET['share']) && $_GET['share'] === '1') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (!isset($_SESSION['user'])) { http_response_code(401); echo json_encode(['ok' => false]); exit; }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); echo json_encode(['ok' => false]); exit; }
+    $payload = json_decode(file_get_contents('php://input') ?: '', true);
+    $tableId = (string)($payload['tableId'] ?? '');
+    $shares = $payload['shares'] ?? [];
+    $username = $_SESSION['user'];
+
+    $idx = -1;
+    foreach ($db['tables'] as $i => $t) if (($t['id'] ?? '') === $tableId) { $idx = $i; break; }
+    if ($idx < 0) { http_response_code(404); echo json_encode(['ok' => false, 'message' => 'Table not found.']); exit; }
+    if (($db['tables'][$idx]['owner'] ?? '') !== $username) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'Only owner can share.']); exit; }
+
+    $sanitized = [];
+    if (is_array($shares)) {
+        foreach ($shares as $target => $perm) {
+            $target = (string)$target;
+            if ($target === $username) continue;
+            if (!isset($users['users'][$target])) continue;
+            if (!in_array($perm, ['view', 'edit'], true)) continue;
+            $sanitized[$target] = $perm;
+        }
+    }
+
+    $db['tables'][$idx]['sharedWith'] = $sanitized;
+    $db['updated_at'] = date('c');
+    jsonWrite($dbFile, $db);
+    echo json_encode(['ok' => true]);
+    exit;
+}
 
 if (isset($_GET['api']) && $_GET['api'] === '1') {
     header('Content-Type: application/json; charset=utf-8');
+    if (!isset($_SESSION['user'])) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Unauthorized']); exit; }
+    $username = $_SESSION['user'];
+
+    ensureSeeded($username, $db);
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-        if (!is_file($storageFile)) {
-            echo json_encode($defaultData);
-            exit;
+        $visible = [];
+        $visibleIds = [];
+        foreach ($db['tables'] as $table) {
+            $perm = permissionFor($username, $table);
+            if (!$perm) continue;
+            $table['_permission'] = $perm;
+            $table['_owner'] = $table['owner'] ?? '';
+            if ($perm === 'owner') $table['_sharedWith'] = $table['sharedWith'] ?? [];
+            $visible[] = $table;
+            $visibleIds[$table['id']] = true;
         }
 
-        $raw = file_get_contents($storageFile);
-        $decoded = json_decode($raw ?: '', true);
-        echo json_encode(is_array($decoded) ? $decoded : $defaultData);
+        $relations = array_values(array_filter(computeRelations($db['tables']), fn($r) => isset($visibleIds[$r['fromTableId']], $visibleIds[$r['toTableId']])));
+        jsonWrite($dbFile, $db);
+        echo json_encode(['tables' => $visible, 'relations' => $relations, 'updated_at' => $db['updated_at'], 'currentUser' => $username]);
         exit;
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $raw = file_get_contents('php://input');
-        $decoded = json_decode($raw ?: '', true);
-
-        if (!is_array($decoded) || !isset($decoded['tables']) || !isset($decoded['relations'])) {
+        $payload = json_decode(file_get_contents('php://input') ?: '', true);
+        if (!is_array($payload) || !isset($payload['tables']) || !is_array($payload['tables'])) {
             http_response_code(422);
             echo json_encode(['ok' => false, 'message' => 'Invalid data format.']);
             exit;
         }
 
-        $sanitized = [
-            'tables' => is_array($decoded['tables']) ? $decoded['tables'] : [],
-            'relations' => is_array($decoded['relations']) ? $decoded['relations'] : [],
-            'updated_at' => date('c'),
-        ];
+        $incoming = $payload['tables'];
+        $incomingIds = [];
+        $existingById = [];
+        foreach ($db['tables'] as $i => $t) $existingById[$t['id']] = $i;
 
-        if (!is_dir(dirname($storageFile))) {
-            mkdir(dirname($storageFile), 0775, true);
+        foreach ($incoming as $table) {
+            if (!is_array($table)) continue;
+            $id = (string)($table['id'] ?? '');
+            if ($id === '') continue;
+            $incomingIds[$id] = true;
+
+            $sanitized = [
+                'id' => $id,
+                'name' => (string)($table['name'] ?? 'Untitled table'),
+                'columns' => is_array($table['columns'] ?? null) ? $table['columns'] : [],
+                'rows' => is_array($table['rows'] ?? null) ? $table['rows'] : [],
+            ];
+
+            if (isset($existingById[$id])) {
+                $idx = $existingById[$id];
+                $existing = $db['tables'][$idx];
+                $perm = permissionFor($username, $existing);
+                if (!in_array($perm, ['owner', 'edit'], true)) continue;
+                $sanitized['owner'] = $existing['owner'] ?? '';
+                $sanitized['sharedWith'] = $existing['sharedWith'] ?? [];
+                $db['tables'][$idx] = $sanitized;
+            } else {
+                $sanitized['owner'] = $username;
+                $sanitized['sharedWith'] = [];
+                $db['tables'][] = $sanitized;
+            }
         }
 
-        file_put_contents($storageFile, json_encode($sanitized, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-        echo json_encode(['ok' => true, 'updated_at' => $sanitized['updated_at']]);
+        $db['tables'] = array_values(array_filter($db['tables'], function ($t) use ($username, $incomingIds) {
+            $id = $t['id'] ?? '';
+            if (($t['owner'] ?? '') !== $username) return true;
+            return isset($incomingIds[$id]);
+        }));
+
+        $db['relations'] = computeRelations($db['tables']);
+        $db['updated_at'] = date('c');
+        jsonWrite($dbFile, $db);
+        echo json_encode(['ok' => true, 'updated_at' => $db['updated_at']]);
         exit;
     }
 
@@ -119,7 +311,29 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<main class="layout" id="appRoot">
+<main class="layout" id="authView">
+    <section class="card auth-card">
+        <h1>No-Code Data Builder</h1>
+        <p class="muted">Log in or create an account to manage your private tables and shared databases.</p>
+        <div class="auth-grid">
+            <form id="loginForm" class="modal-form">
+                <h3>Log in</h3>
+                <input name="username" type="text" placeholder="Username" required>
+                <input name="password" type="password" placeholder="Password" required>
+                <button type="submit">Log in</button>
+            </form>
+            <form id="signupForm" class="modal-form">
+                <h3>Create account</h3>
+                <input name="username" type="text" placeholder="Username" required>
+                <input name="password" type="password" placeholder="Password (min 6 chars)" required>
+                <button type="submit">Sign up</button>
+            </form>
+        </div>
+        <p id="authMessage" class="muted"></p>
+    </section>
+</main>
+
+<main class="layout" id="appRoot" hidden>
     <header class="hero card">
         <div>
             <p class="eyebrow">NO-CODE DATA BUILDER</p>
@@ -127,7 +341,9 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             <p id="pageSubtitle" class="muted">Start by creating or selecting a table.</p>
         </div>
         <div class="hero-actions">
+            <span class="muted" id="currentUserLabel"></span>
             <button class="ghost" id="themeToggleBtn" type="button" aria-label="Switch to dark mode">🌙 Dark mode</button>
+            <button class="ghost" id="logoutBtn" type="button">Log out</button>
             <div class="badge" id="saveState">Ready</div>
         </div>
     </header>
@@ -145,6 +361,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             <h2 id="activeTableTitle">Table</h2>
             <div class="inline-actions">
                 <button class="ghost" id="backToHomeBtn">Back to tables</button>
+                <button class="ghost" id="openShareModalBtn">Share</button>
                 <button id="openMergeModalBtn">Merge related table</button>
                 <button id="openAddRowModalBtn">Add row</button>
             </div>
@@ -165,65 +382,11 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     </section>
 </main>
 
-<dialog id="tableModal" class="modal">
-    <form method="dialog" id="tableForm" class="modal-form">
-        <h3 id="tableModalTitle">Create table</h3>
-        <input id="tableNameInput" type="text" placeholder="Example: Customers" required>
-        <menu>
-            <button value="cancel" class="ghost">Cancel</button>
-            <button id="saveTableBtn" value="default">Save</button>
-        </menu>
-    </form>
-</dialog>
-
-<dialog id="columnModal" class="modal">
-    <form method="dialog" id="columnForm" class="modal-form">
-        <h3 id="columnModalTitle">Add column</h3>
-        <input id="columnNameInput" type="text" placeholder="Column name" required>
-        <select id="columnTypeInput">
-            <option value="text">Text</option>
-            <option value="number">Number</option>
-            <option value="date">Date</option>
-            <option value="yesno">Yes / No</option>
-            <option value="dropdown">Dropdown</option>
-            <option value="relation">Relation</option>
-            <option value="remarks">Remarks (timestamped append)</option>
-        </select>
-        <input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden>
-        <div id="relationConfig" class="row" hidden>
-            <select id="relationTableInput"></select>
-            <select id="relationColumnInput"></select>
-        </div>
-        <menu>
-            <button value="cancel" class="ghost">Cancel</button>
-            <button id="saveColumnBtn" value="default">Save</button>
-        </menu>
-    </form>
-</dialog>
-
-<dialog id="rowModal" class="modal">
-    <form method="dialog" id="rowForm" class="modal-form">
-        <h3 id="rowModalTitle">Add row</h3>
-        <div id="rowFields"></div>
-        <menu>
-            <button value="cancel" class="ghost">Cancel</button>
-            <button id="saveRowBtn" value="default">Save</button>
-        </menu>
-    </form>
-</dialog>
-
-<dialog id="mergeModal" class="modal">
-    <form method="dialog" id="mergeForm" class="modal-form">
-        <h3>Merge related table</h3>
-        <p class="muted">Choose a relation column from this table, then choose columns from the linked table.</p>
-        <select id="mergeRelationSelect"></select>
-        <div id="mergeColumnChoices" class="merge-columns"></div>
-        <menu>
-            <button value="cancel" class="ghost">Cancel</button>
-            <button id="applyMergeBtn" value="default">Apply merge</button>
-        </menu>
-    </form>
-</dialog>
+<dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
+<dialog id="columnModal" class="modal"><form method="dialog" id="columnForm" class="modal-form"><h3 id="columnModalTitle">Add column</h3><input id="columnNameInput" type="text" placeholder="Column name" required><select id="columnTypeInput"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="yesno">Yes / No</option><option value="dropdown">Dropdown</option><option value="relation">Relation</option><option value="remarks">Remarks (timestamped append)</option></select><input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden><div id="relationConfig" class="row" hidden><select id="relationTableInput"></select><select id="relationColumnInput"></select></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveColumnBtn" value="default">Save</button></menu></form></dialog>
+<dialog id="rowModal" class="modal"><form method="dialog" id="rowForm" class="modal-form"><h3 id="rowModalTitle">Add row</h3><div id="rowFields"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveRowBtn" value="default">Save</button></menu></form></dialog>
+<dialog id="mergeModal" class="modal"><form method="dialog" id="mergeForm" class="modal-form"><h3>Merge related table</h3><p class="muted">Choose a relation column from this table, then choose columns from the linked table.</p><select id="mergeRelationSelect"></select><div id="mergeColumnChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="applyMergeBtn" value="default">Apply merge</button></menu></form></dialog>
+<dialog id="shareModal" class="modal"><form method="dialog" id="shareForm" class="modal-form"><h3>Share table</h3><p class="muted">Choose users and permission level.</p><div id="shareUsersList" class="share-grid"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveShareBtn" value="default">Save sharing</button></menu></form></dialog>
 
 <script src="script.js"></script>
 </body>

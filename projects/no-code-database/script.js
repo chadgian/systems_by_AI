@@ -6,7 +6,17 @@ const state = {
     editingColumnId: null,
     editingRowId: null,
     mergeConfig: null,
+    currentUser: null,
+    userDirectory: [],
 };
+
+const authView = document.getElementById('authView');
+const appRoot = document.getElementById('appRoot');
+const authMessage = document.getElementById('authMessage');
+const loginForm = document.getElementById('loginForm');
+const signupForm = document.getElementById('signupForm');
+const logoutBtn = document.getElementById('logoutBtn');
+const currentUserLabel = document.getElementById('currentUserLabel');
 
 const saveStateBadge = document.getElementById('saveState');
 const pageTitle = document.getElementById('pageTitle');
@@ -43,6 +53,11 @@ const mergeModal = document.getElementById('mergeModal');
 const mergeForm = document.getElementById('mergeForm');
 const mergeRelationSelect = document.getElementById('mergeRelationSelect');
 const mergeColumnChoices = document.getElementById('mergeColumnChoices');
+
+const shareModal = document.getElementById('shareModal');
+const shareForm = document.getElementById('shareForm');
+const shareUsersList = document.getElementById('shareUsersList');
+
 const themeToggleBtn = document.getElementById('themeToggleBtn');
 
 const openCreateTableModalBtn = document.getElementById('openCreateTableModalBtn');
@@ -50,18 +65,16 @@ const backToHomeBtn = document.getElementById('backToHomeBtn');
 const openAddColumnModalBtn = document.getElementById('openAddColumnModalBtn');
 const openAddRowModalBtn = document.getElementById('openAddRowModalBtn');
 const openMergeModalBtn = document.getElementById('openMergeModalBtn');
+const openShareModalBtn = document.getElementById('openShareModalBtn');
 
 const uid = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 const tableById = (id) => state.tables.find((t) => t.id === id) || null;
 const activeTable = () => tableById(state.activeTableId);
+const canEditTable = (table) => ['owner', 'edit'].includes(table?._permission || '');
+const isOwnerTable = (table) => table?._permission === 'owner';
 
 function escapeHtml(value) {
-    return String(value)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
+    return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
 function parseOptions(raw) {
@@ -81,19 +94,13 @@ function syncRoute(push = false) {
     else window.history.replaceState({}, '', url);
 }
 
-function formatTimestamp() {
-    return new Date().toLocaleString();
-}
-
+function formatTimestamp() { return new Date().toLocaleString(); }
 
 function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
     document.documentElement.dataset.theme = nextTheme;
-    if (themeToggleBtn) {
-        const dark = nextTheme === 'dark';
-        themeToggleBtn.textContent = dark ? '☀️ Light mode' : '🌙 Dark mode';
-        themeToggleBtn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
-    }
+    const dark = nextTheme === 'dark';
+    themeToggleBtn.textContent = dark ? '☀️ Light mode' : '🌙 Dark mode';
 }
 
 function initTheme() {
@@ -122,26 +129,24 @@ function renderHome() {
         return;
     }
 
-    tableList.innerHTML = state.tables.map((table) => `
-        <li>
+    tableList.innerHTML = state.tables.map((table) => {
+        const tag = table._permission === 'owner' ? 'Owner' : (table._permission === 'edit' ? 'Shared: edit' : 'Shared: view');
+        return `<li>
             <div>
                 <strong>${escapeHtml(table.name)}</strong>
-                <small class="muted">${table.columns?.length || 0} columns • ${table.rows?.length || 0} rows</small>
+                <small class="muted">${table.columns?.length || 0} columns • ${table.rows?.length || 0} rows • ${tag} ${table._owner ? `• by ${escapeHtml(table._owner)}` : ''}</small>
             </div>
             <div class="inline-actions">
                 <button class="ghost" data-open-table="${table.id}">Open</button>
-                <button class="ghost" data-edit-table="${table.id}">Rename</button>
-                <button class="danger" data-delete-table="${table.id}">Delete</button>
+                ${isOwnerTable(table) ? `<button class="ghost" data-edit-table="${table.id}">Rename</button><button class="danger" data-delete-table="${table.id}">Delete</button>` : ''}
             </div>
-        </li>
-    `).join('');
+        </li>`;
+    }).join('');
 }
 
 function renderColumns(table) {
-    if (!table.columns.length) {
-        columnList.innerHTML = '<li>No columns yet.</li>';
-        return;
-    }
+    if (!table.columns.length) { columnList.innerHTML = '<li>No columns yet.</li>'; return; }
+    const editable = canEditTable(table);
 
     columnList.innerHTML = table.columns.map((col) => {
         let info = col.type;
@@ -158,10 +163,7 @@ function renderColumns(table) {
                 <small class="muted">${escapeHtml(info)}</small>
             </div>
             <div class="inline-actions">
-                <button class="ghost" data-move-column-up="${col.id}">↑</button>
-                <button class="ghost" data-move-column-down="${col.id}">↓</button>
-                <button class="ghost" data-edit-column="${col.id}">Edit</button>
-                <button class="danger" data-delete-column="${col.id}">Delete</button>
+                ${editable ? `<button class="ghost" data-move-column-up="${col.id}">↑</button><button class="ghost" data-move-column-down="${col.id}">↓</button><button class="ghost" data-edit-column="${col.id}">Edit</button><button class="danger" data-delete-column="${col.id}">Delete</button>` : '<small class="muted">View only</small>'}
             </div>
         </li>`;
     }).join('');
@@ -178,8 +180,9 @@ function mergedColumnsForTable(table) {
 
 function renderInlineCell(table, row, col) {
     const raw = row.values?.[col.id] ?? '';
+    const editable = canEditTable(table);
 
-    if (col.type === 'dropdown') {
+    if (col.type === 'dropdown' && editable) {
         const options = (col.options || []).map((opt) => `<option value="${escapeHtml(opt)}" ${String(raw) === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('');
         return `<select class="inline-dropdown" data-inline-dropdown-row="${row.id}" data-inline-dropdown-col="${col.id}">${options}</select>`;
     }
@@ -187,55 +190,45 @@ function renderInlineCell(table, row, col) {
     if (col.type === 'remarks') {
         const notes = String(raw || '').split('\n').filter(Boolean);
         const latest = notes.length ? notes[notes.length - 1] : '';
-        return `<div class="remarks-cell">
-            <small>${escapeHtml(latest || 'No remarks yet')}</small>
-            <button class="ghost" data-append-remark-row="${row.id}" data-append-remark-col="${col.id}">Add remark</button>
-        </div>`;
+        return `<div class="remarks-cell"><small>${escapeHtml(latest || 'No remarks yet')}</small><button class="ghost" data-view-remarks-row="${row.id}" data-view-remarks-col="${col.id}">View all (${notes.length})</button>${editable ? `<button class="ghost" data-append-remark-row="${row.id}" data-append-remark-col="${col.id}">Add remark</button>` : ''}</div>`;
     }
 
     return escapeHtml(getDisplayValue(table, col, raw));
 }
 
 function renderRows(table) {
+    const editable = canEditTable(table);
     const mergedCols = mergedColumnsForTable(table);
     const cols = [...table.columns, ...mergedCols];
     const head = `<tr>${cols.map((c) => `<th>${escapeHtml(c.__label || c.name)}</th>`).join('')}<th>Actions</th></tr>`;
 
-    const body = (table.rows || []).length
-        ? table.rows.map((row) => {
-            const cells = cols.map((col) => {
-                if (col.__merged) {
-                    const relCol = table.columns.find((c) => c.id === state.mergeConfig.relationColumnId);
-                    const targetTable = tableById(relCol?.relation?.tableId);
-                    const linkedRow = (targetTable?.rows || []).find((r) => r.id === row.values?.[relCol?.id]);
-                    return `<td>${escapeHtml(String(linkedRow?.values?.[col.id] ?? ''))}</td>`;
-                }
+    const body = (table.rows || []).length ? table.rows.map((row) => {
+        const cells = cols.map((col) => {
+            if (col.__merged) {
+                const relCol = table.columns.find((c) => c.id === state.mergeConfig.relationColumnId);
+                const targetTable = tableById(relCol?.relation?.tableId);
+                const linkedRow = (targetTable?.rows || []).find((r) => r.id === row.values?.[relCol?.id]);
+                return `<td>${escapeHtml(String(linkedRow?.values?.[col.id] ?? ''))}</td>`;
+            }
+            return `<td>${renderInlineCell(table, row, col)}</td>`;
+        }).join('');
 
-                return `<td>${renderInlineCell(table, row, col)}</td>`;
-            }).join('');
-
-            return `<tr>${cells}<td class="inline-actions">
-                <button class="ghost" data-move-row-up="${row.id}">↑</button>
-                <button class="ghost" data-move-row-down="${row.id}">↓</button>
-                <button class="ghost" data-edit-row="${row.id}">Edit</button>
-                <button class="danger" data-delete-row="${row.id}">Delete</button>
-            </td></tr>`;
-        }).join('')
-        : `<tr><td colspan="${cols.length + 1}">No rows yet.</td></tr>`;
+        return `<tr>${cells}<td class="inline-actions">${editable ? `<button class="ghost" data-move-row-up="${row.id}">↑</button><button class="ghost" data-move-row-down="${row.id}">↓</button><button class="ghost" data-edit-row="${row.id}">Edit</button><button class="danger" data-delete-row="${row.id}">Delete</button>` : '<small class="muted">View only</small>'}</td></tr>`;
+    }).join('') : `<tr><td colspan="${cols.length + 1}">No rows yet.</td></tr>`;
 
     dataTable.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
 }
 
 function renderTablePage() {
     const table = activeTable();
-    if (!table) {
-        state.activeTableId = null;
-        syncRoute();
-        render();
-        return;
-    }
+    if (!table) { state.activeTableId = null; syncRoute(); render(); return; }
 
     activeTableTitle.textContent = table.name;
+    openShareModalBtn.hidden = !isOwnerTable(table);
+    openAddRowModalBtn.disabled = !canEditTable(table);
+    openAddColumnModalBtn.disabled = !canEditTable(table);
+    openMergeModalBtn.disabled = !canEditTable(table);
+
     renderColumns(table);
     renderRows(table);
 }
@@ -246,9 +239,7 @@ function render() {
     tableView.hidden = !isTablePage;
 
     pageTitle.textContent = isTablePage ? activeTable()?.name || 'Table' : 'Your tables';
-    pageSubtitle.textContent = isTablePage
-        ? 'Manage columns here, then add/edit rows via modal. Dropdown + remarks can be updated inline.'
-        : 'Start by creating or selecting a table.';
+    pageSubtitle.textContent = isTablePage ? 'Tables are private by default. Owners can share with view/edit permission.' : 'Start by creating or selecting a table.';
 
     renderHome();
     if (isTablePage) renderTablePage();
@@ -257,9 +248,7 @@ function render() {
 async function persist() {
     saveStateBadge.textContent = 'Saving...';
     const response = await fetch('index.php?api=1', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tables: state.tables, relations: state.relations }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tables: state.tables, relations: state.relations }),
     });
     saveStateBadge.textContent = response.ok ? 'Saved' : 'Save failed';
     if (response.ok) setTimeout(() => { saveStateBadge.textContent = 'Ready'; }, 800);
@@ -267,9 +256,12 @@ async function persist() {
 
 async function loadWorkspace() {
     const response = await fetch('index.php?api=1');
+    if (response.status === 401) { showAuth(); return; }
     const data = await response.json();
     state.tables = Array.isArray(data.tables) ? data.tables : [];
     state.relations = Array.isArray(data.relations) ? data.relations : [];
+    state.currentUser = data.currentUser || state.currentUser;
+    currentUserLabel.textContent = state.currentUser ? `@${state.currentUser}` : '';
 
     const url = new URL(window.location.href);
     if (url.searchParams.get('view') === 'table') {
@@ -280,16 +272,34 @@ async function loadWorkspace() {
     render();
 }
 
-function populateRelationConfig(selectedTableId = '', selectedColumnId = '') {
-    relationTableInput.innerHTML = '<option value="">Select linked table</option>' + state.tables
-        .filter((t) => t.id !== state.activeTableId)
-        .map((t) => `<option value="${t.id}" ${t.id === selectedTableId ? 'selected' : ''}>${escapeHtml(t.name)}</option>`)
-        .join('');
+function showAuth(message = '') {
+    authView.hidden = false;
+    appRoot.hidden = true;
+    authMessage.textContent = message;
+}
 
-    const targetTable = tableById(selectedTableId);
-    relationColumnInput.innerHTML = '<option value="">Select display column</option>' + (targetTable?.columns || [])
-        .map((c) => `<option value="${c.id}" ${c.id === selectedColumnId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`)
-        .join('');
+function showApp() {
+    authView.hidden = true;
+    appRoot.hidden = false;
+}
+
+async function checkSession() {
+    const response = await fetch('index.php?auth=me');
+    const data = await response.json();
+    if (!data.authenticated) {
+        showAuth();
+        return;
+    }
+    state.currentUser = data.username;
+    showApp();
+    await loadWorkspace();
+}
+
+async function loadUsersForSharing() {
+    const response = await fetch('index.php?auth=users');
+    if (!response.ok) return;
+    const data = await response.json();
+    state.userDirectory = Array.isArray(data.users) ? data.users : [];
 }
 
 function openTableModal(editId = null) {
@@ -299,10 +309,16 @@ function openTableModal(editId = null) {
     tableModal.showModal();
 }
 
+function populateRelationConfig(selectedTableId = '', selectedColumnId = '') {
+    relationTableInput.innerHTML = '<option value="">Select linked table</option>' + state.tables.filter((t) => t.id !== state.activeTableId).map((t) => `<option value="${t.id}" ${t.id === selectedTableId ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('');
+
+    const targetTable = tableById(selectedTableId);
+    relationColumnInput.innerHTML = '<option value="">Select display column</option>' + (targetTable?.columns || []).map((c) => `<option value="${c.id}" ${c.id === selectedColumnId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+}
+
 function openColumnModal(editId = null) {
     const table = activeTable();
-    if (!table) return;
-
+    if (!table || !canEditTable(table)) return;
     state.editingColumnId = editId;
     columnModalTitle.textContent = editId ? 'Edit column' : 'Add column';
 
@@ -312,17 +328,13 @@ function openColumnModal(editId = null) {
     dropdownOptionsInput.hidden = columnTypeInput.value !== 'dropdown';
     relationConfig.hidden = columnTypeInput.value !== 'relation';
     dropdownOptionsInput.value = (existing?.options || []).join(', ');
-
-    const relTableId = existing?.relation?.tableId || '';
-    const relColId = existing?.relation?.columnId || '';
-    populateRelationConfig(relTableId, relColId);
-
+    populateRelationConfig(existing?.relation?.tableId || '', existing?.relation?.columnId || '');
     columnModal.showModal();
 }
 
 function openRowModal(editId = null) {
     const table = activeTable();
-    if (!table || !table.columns.length) return alert('Add columns first.');
+    if (!table || !canEditTable(table) || !table.columns.length) return;
 
     state.editingRowId = editId;
     rowModalTitle.textContent = editId ? 'Edit row' : 'Add row';
@@ -330,44 +342,30 @@ function openRowModal(editId = null) {
 
     rowFields.innerHTML = table.columns.map((col) => {
         const value = existingRow?.values?.[col.id] ?? '';
-
         if (col.type === 'dropdown') {
             const opts = (col.options || []).map((opt) => `<option value="${escapeHtml(opt)}" ${String(value) === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('');
             return `<label>${escapeHtml(col.name)}<select name="${col.id}">${opts}</select></label>`;
         }
-
-        if (col.type === 'yesno') {
-            return `<label>${escapeHtml(col.name)}<select name="${col.id}"><option value="Yes" ${value === 'Yes' ? 'selected' : ''}>Yes</option><option value="No" ${value === 'No' ? 'selected' : ''}>No</option></select></label>`;
-        }
-
+        if (col.type === 'yesno') return `<label>${escapeHtml(col.name)}<select name="${col.id}"><option value="Yes" ${value === 'Yes' ? 'selected' : ''}>Yes</option><option value="No" ${value === 'No' ? 'selected' : ''}>No</option></select></label>`;
         if (col.type === 'relation') {
             const targetTable = tableById(col.relation?.tableId);
             const targetCol = targetTable?.columns?.find((c) => c.id === col.relation?.columnId);
-            const opts = (targetTable?.rows || []).map((row) => {
-                const lbl = targetCol ? row.values?.[targetCol.id] : row.id;
-                return `<option value="${row.id}" ${value === row.id ? 'selected' : ''}>${escapeHtml(String(lbl ?? '(empty)'))}</option>`;
-            }).join('');
+            const opts = (targetTable?.rows || []).map((row) => `<option value="${row.id}" ${value === row.id ? 'selected' : ''}>${escapeHtml(String(targetCol ? row.values?.[targetCol.id] : row.id))}</option>`).join('');
             return `<label>${escapeHtml(col.name)}<select name="${col.id}"><option value="">Select linked row</option>${opts}</select></label>`;
         }
-
-        if (col.type === 'remarks') {
-            return `<label>${escapeHtml(col.name)}<textarea name="${col.id}" rows="4" placeholder="Optional: you can also add remarks inline from table view.">${escapeHtml(String(value))}</textarea></label>`;
-        }
+        if (col.type === 'remarks') return `<label>${escapeHtml(col.name)}<textarea rows="4" readonly>${escapeHtml(String(value) || 'No remarks yet.')}</textarea><small class="muted">Append-only remarks.</small><textarea name="append_${col.id}" rows="2" placeholder="New remark"></textarea></label>`;
 
         const inputType = col.type === 'number' ? 'number' : (col.type === 'date' ? 'date' : 'text');
         return `<label>${escapeHtml(col.name)}<input type="${inputType}" name="${col.id}" value="${escapeHtml(String(value))}"></label>`;
     }).join('');
-
     rowModal.showModal();
 }
 
 function openMergeModal() {
     const table = activeTable();
-    if (!table) return;
-
+    if (!table || !canEditTable(table)) return;
     const relationCols = table.columns.filter((c) => c.type === 'relation');
     if (!relationCols.length) return alert('No relation columns in this table.');
-
     mergeRelationSelect.innerHTML = relationCols.map((col) => `<option value="${col.id}">${escapeHtml(col.name)}</option>`).join('');
     renderMergeColumnChoices();
     mergeModal.showModal();
@@ -377,57 +375,94 @@ function renderMergeColumnChoices() {
     const table = activeTable();
     const relationCol = table?.columns.find((c) => c.id === mergeRelationSelect.value);
     const targetTable = tableById(relationCol?.relation?.tableId);
-    if (!targetTable) {
-        mergeColumnChoices.innerHTML = '<p class="muted">Select relation first.</p>';
-        return;
-    }
-
-    mergeColumnChoices.innerHTML = (targetTable.columns || []).map((col) => `
-        <label class="chip-option">
-            <input type="checkbox" value="${col.id}" checked>
-            ${escapeHtml(col.name)}
-        </label>
-    `).join('');
+    if (!targetTable) { mergeColumnChoices.innerHTML = '<p class="muted">Select relation first.</p>'; return; }
+    mergeColumnChoices.innerHTML = (targetTable.columns || []).map((col) => `<label class="chip-option"><input type="checkbox" value="${col.id}" checked>${escapeHtml(col.name)}</label>`).join('');
 }
 
-openCreateTableModalBtn.addEventListener('click', () => openTableModal());
-backToHomeBtn.addEventListener('click', () => {
-    state.activeTableId = null;
-    state.mergeConfig = null;
-    syncRoute(true);
-    render();
+function openShareModal() {
+    const table = activeTable();
+    if (!table || !isOwnerTable(table)) return;
+    const currentShares = table._sharedWith || {};
+    shareUsersList.innerHTML = state.userDirectory.map((user) => {
+        const perm = currentShares[user] || '';
+        return `<label class="chip-option"><span>${escapeHtml(user)}</span><select data-share-user="${escapeHtml(user)}"><option value="">No access</option><option value="view" ${perm === 'view' ? 'selected' : ''}>View</option><option value="edit" ${perm === 'edit' ? 'selected' : ''}>Edit</option></select></label>`;
+    }).join('') || '<p class="muted">No other users yet.</p>';
+    shareModal.showModal();
+}
+
+loginForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const fd = new FormData(loginForm);
+    const response = await fetch('index.php?auth=login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: String(fd.get('username') || '').trim(), password: String(fd.get('password') || '') }) });
+    const data = await response.json();
+    if (!response.ok) { showAuth(data.message || 'Login failed.'); return; }
+    state.currentUser = data.username;
+    showApp();
+    await loadUsersForSharing();
+    await loadWorkspace();
 });
+
+signupForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const fd = new FormData(signupForm);
+    const response = await fetch('index.php?auth=signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: String(fd.get('username') || '').trim(), password: String(fd.get('password') || '') }) });
+    const data = await response.json();
+    if (!response.ok) { showAuth(data.message || 'Sign up failed.'); return; }
+    state.currentUser = data.username;
+    showApp();
+    await loadUsersForSharing();
+    await loadWorkspace();
+});
+
+logoutBtn.addEventListener('click', async () => {
+    await fetch('index.php?auth=logout', { method: 'POST' });
+    state.tables = [];
+    state.relations = [];
+    state.activeTableId = null;
+    showAuth('Logged out.');
+});
+
+themeToggleBtn.addEventListener('click', () => {
+    const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    window.localStorage.setItem('ncdb-theme', next);
+});
+
+openCreateTableModalBtn.addEventListener('click', () => openTableModal());
+backToHomeBtn.addEventListener('click', () => { state.activeTableId = null; state.mergeConfig = null; syncRoute(true); render(); });
 openAddColumnModalBtn.addEventListener('click', () => openColumnModal());
 openAddRowModalBtn.addEventListener('click', () => openRowModal());
 openMergeModalBtn.addEventListener('click', openMergeModal);
-if (themeToggleBtn) {
-    themeToggleBtn.addEventListener('click', () => {
-        const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
-        const next = current === 'dark' ? 'light' : 'dark';
-        applyTheme(next);
-        window.localStorage.setItem('ncdb-theme', next);
-    });
-}
+openShareModalBtn.addEventListener('click', openShareModal);
 
 columnTypeInput.addEventListener('change', () => {
     dropdownOptionsInput.hidden = columnTypeInput.value !== 'dropdown';
     relationConfig.hidden = columnTypeInput.value !== 'relation';
     if (columnTypeInput.value === 'relation') populateRelationConfig(relationTableInput.value, relationColumnInput.value);
 });
-
 relationTableInput.addEventListener('change', () => populateRelationConfig(relationTableInput.value));
 mergeRelationSelect.addEventListener('change', renderMergeColumnChoices);
+
+shareForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const table = activeTable();
+    if (!table || !isOwnerTable(table)) return;
+    const shares = {};
+    shareUsersList.querySelectorAll('[data-share-user]').forEach((select) => {
+        if (select.value) shares[select.getAttribute('data-share-user')] = select.value;
+    });
+    const response = await fetch('index.php?share=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: table.id, shares }) });
+    if (!response.ok) return alert('Could not update sharing settings.');
+    shareModal.close();
+    await loadWorkspace();
+});
 
 mergeForm.addEventListener('submit', (event) => {
     event.preventDefault();
     const checked = Array.from(mergeColumnChoices.querySelectorAll('input:checked')).map((el) => el.value);
     if (!checked.length) return alert('Select at least one column.');
-
-    state.mergeConfig = {
-        baseTableId: state.activeTableId,
-        relationColumnId: mergeRelationSelect.value,
-        targetColumnIds: checked,
-    };
+    state.mergeConfig = { baseTableId: state.activeTableId, relationColumnId: mergeRelationSelect.value, targetColumnIds: checked };
     mergeModal.close();
     render();
 });
@@ -439,24 +474,19 @@ tableForm.addEventListener('submit', async (event) => {
 
     if (state.editingTableId) {
         const table = tableById(state.editingTableId);
-        if (table) table.name = name;
-    } else {
-        state.tables.push({ id: uid('tbl'), name, columns: [], rows: [] });
-    }
+        if (table && isOwnerTable(table)) table.name = name;
+    } else state.tables.push({ id: uid('tbl'), name, columns: [], rows: [], _permission: 'owner', _owner: state.currentUser, _sharedWith: {} });
 
-    tableModal.close();
-    render();
-    await persist();
+    tableModal.close(); render(); await persist();
 });
 
 columnForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const table = activeTable();
-    if (!table) return;
+    if (!table || !canEditTable(table)) return;
 
     const name = columnNameInput.value.trim();
     if (!name) return;
-
     const type = columnTypeInput.value;
     const payload = { name, type };
     if (type === 'dropdown') {
@@ -471,131 +501,90 @@ columnForm.addEventListener('submit', async (event) => {
 
     if (state.editingColumnId) {
         const col = table.columns.find((c) => c.id === state.editingColumnId);
-        if (col) {
-            col.name = payload.name;
-            col.type = payload.type;
-            delete col.options;
-            delete col.relation;
-            if (payload.options) col.options = payload.options;
-            if (payload.relation) col.relation = payload.relation;
-        }
-    } else {
-        table.columns.push({ id: uid('col'), ...payload });
-    }
+        if (col) Object.assign(col, payload);
+    } else table.columns.push({ id: uid('col'), ...payload });
 
-    columnModal.close();
-    render();
-    await persist();
+    columnModal.close(); render(); await persist();
 });
 
 rowForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const table = activeTable();
-    if (!table) return;
+    if (!table || !canEditTable(table)) return;
 
     const formData = new FormData(rowForm);
+    const existingRow = state.editingRowId ? table.rows.find((r) => r.id === state.editingRowId) : null;
     const values = {};
-    for (const col of table.columns) values[col.id] = String(formData.get(col.id) ?? '');
+
+    for (const col of table.columns) {
+        if (col.type === 'remarks') {
+            const previous = String(existingRow?.values?.[col.id] ?? '');
+            const newText = String(formData.get(`append_${col.id}`) ?? '').trim();
+            values[col.id] = newText ? `${previous ? `${previous}\n` : ''}[${formatTimestamp()}] ${newText}` : previous;
+            continue;
+        }
+        values[col.id] = String(formData.get(col.id) ?? '');
+    }
 
     if (state.editingRowId) {
         const row = table.rows.find((r) => r.id === state.editingRowId);
         if (row) row.values = values;
-    } else {
-        table.rows.push({ id: uid('row'), values });
-    }
+    } else table.rows.push({ id: uid('row'), values });
 
-    rowModal.close();
-    render();
-    await persist();
+    rowModal.close(); render(); await persist();
 });
 
 tableList.addEventListener('click', async (event) => {
     const openBtn = event.target.closest('[data-open-table]');
-    if (openBtn) {
-        state.activeTableId = openBtn.dataset.openTable;
-        state.mergeConfig = null;
-        syncRoute(true);
-        render();
-        return;
-    }
+    if (openBtn) { state.activeTableId = openBtn.dataset.openTable; state.mergeConfig = null; syncRoute(true); render(); return; }
 
     const editBtn = event.target.closest('[data-edit-table]');
-    if (editBtn) {
-        openTableModal(editBtn.dataset.editTable);
-        return;
-    }
+    if (editBtn) { openTableModal(editBtn.dataset.editTable); return; }
 
     const deleteBtn = event.target.closest('[data-delete-table]');
     if (!deleteBtn) return;
-
-    const tableId = deleteBtn.dataset.deleteTable;
-    if (!window.confirm('Delete this table?')) return;
-
-    state.tables = state.tables.filter((t) => t.id !== tableId);
-    if (state.activeTableId === tableId) state.activeTableId = null;
-    render();
-    await persist();
+    const table = tableById(deleteBtn.dataset.deleteTable);
+    if (!table || !isOwnerTable(table) || !window.confirm('Delete this table?')) return;
+    state.tables = state.tables.filter((t) => t.id !== table.id);
+    render(); await persist();
 });
 
 columnList.addEventListener('click', async (event) => {
     const table = activeTable();
-    if (!table) return;
+    if (!table || !canEditTable(table)) return;
 
     const upBtn = event.target.closest('[data-move-column-up]');
     if (upBtn) {
         const idx = table.columns.findIndex((c) => c.id === upBtn.dataset.moveColumnUp);
-        if (idx > 0) {
-            [table.columns[idx - 1], table.columns[idx]] = [table.columns[idx], table.columns[idx - 1]];
-            render();
-            await persist();
-        }
+        if (idx > 0) { [table.columns[idx - 1], table.columns[idx]] = [table.columns[idx], table.columns[idx - 1]]; render(); await persist(); }
         return;
     }
 
     const downBtn = event.target.closest('[data-move-column-down]');
     if (downBtn) {
         const idx = table.columns.findIndex((c) => c.id === downBtn.dataset.moveColumnDown);
-        if (idx >= 0 && idx < table.columns.length - 1) {
-            [table.columns[idx + 1], table.columns[idx]] = [table.columns[idx], table.columns[idx + 1]];
-            render();
-            await persist();
-        }
+        if (idx >= 0 && idx < table.columns.length - 1) { [table.columns[idx + 1], table.columns[idx]] = [table.columns[idx], table.columns[idx + 1]]; render(); await persist(); }
         return;
     }
 
     const editBtn = event.target.closest('[data-edit-column]');
-    if (editBtn) {
-        openColumnModal(editBtn.dataset.editColumn);
-        return;
-    }
+    if (editBtn) { openColumnModal(editBtn.dataset.editColumn); return; }
 
     const delBtn = event.target.closest('[data-delete-column]');
-    if (!delBtn) return;
-
+    if (!delBtn || !window.confirm('Delete this column and its values?')) return;
     const columnId = delBtn.dataset.deleteColumn;
-    if (!window.confirm('Delete this column and its values?')) return;
-
     table.columns = table.columns.filter((c) => c.id !== columnId);
-    table.rows = table.rows.map((row) => {
-        const values = { ...(row.values || {}) };
-        delete values[columnId];
-        return { ...row, values };
-    });
-
-    render();
-    await persist();
+    table.rows = table.rows.map((row) => ({ ...row, values: Object.fromEntries(Object.entries(row.values || {}).filter(([k]) => k !== columnId)) }));
+    render(); await persist();
 });
 
 dataTable.addEventListener('change', async (event) => {
     const table = activeTable();
-    if (!table) return;
-
+    if (!table || !canEditTable(table)) return;
     const dropdown = event.target.closest('[data-inline-dropdown-row]');
     if (!dropdown) return;
-
     const row = table.rows.find((r) => r.id === dropdown.dataset.inlineDropdownRow);
     if (!row) return;
-
     row.values[dropdown.dataset.inlineDropdownCol] = dropdown.value;
     await persist();
 });
@@ -604,64 +593,58 @@ dataTable.addEventListener('click', async (event) => {
     const table = activeTable();
     if (!table) return;
 
-    const remarkBtn = event.target.closest('[data-append-remark-row]');
-    if (remarkBtn) {
-        const row = table.rows.find((r) => r.id === remarkBtn.dataset.appendRemarkRow);
+    const viewRemarkBtn = event.target.closest('[data-view-remarks-row]');
+    if (viewRemarkBtn) {
+        const row = table.rows.find((r) => r.id === viewRemarkBtn.dataset.viewRemarksRow);
         if (!row) return;
-        const colId = remarkBtn.dataset.appendRemarkCol;
-        const text = window.prompt('Add remark:');
-        if (!text || !text.trim()) return;
-        const previous = String(row.values[colId] || '');
-        const appended = `[${formatTimestamp()}] ${text.trim()}`;
-        row.values[colId] = previous ? `${previous}\n${appended}` : appended;
-        render();
-        await persist();
+        alert(String(row.values[viewRemarkBtn.dataset.viewRemarksCol] || '').trim() || 'No remarks yet.');
         return;
     }
+
+    if (canEditTable(table)) {
+        const remarkBtn = event.target.closest('[data-append-remark-row]');
+        if (remarkBtn) {
+            const row = table.rows.find((r) => r.id === remarkBtn.dataset.appendRemarkRow);
+            if (!row) return;
+            const text = prompt('Add remark:');
+            if (!text || !text.trim()) return;
+            const colId = remarkBtn.dataset.appendRemarkCol;
+            const previous = String(row.values[colId] || '');
+            row.values[colId] = previous ? `${previous}\n[${formatTimestamp()}] ${text.trim()}` : `[${formatTimestamp()}] ${text.trim()}`;
+            render(); await persist(); return;
+        }
+    }
+
+    if (!canEditTable(table)) return;
 
     const upBtn = event.target.closest('[data-move-row-up]');
     if (upBtn) {
         const idx = table.rows.findIndex((r) => r.id === upBtn.dataset.moveRowUp);
-        if (idx > 0) {
-            [table.rows[idx - 1], table.rows[idx]] = [table.rows[idx], table.rows[idx - 1]];
-            render();
-            await persist();
-        }
+        if (idx > 0) { [table.rows[idx - 1], table.rows[idx]] = [table.rows[idx], table.rows[idx - 1]]; render(); await persist(); }
         return;
     }
 
     const downBtn = event.target.closest('[data-move-row-down]');
     if (downBtn) {
         const idx = table.rows.findIndex((r) => r.id === downBtn.dataset.moveRowDown);
-        if (idx >= 0 && idx < table.rows.length - 1) {
-            [table.rows[idx + 1], table.rows[idx]] = [table.rows[idx], table.rows[idx + 1]];
-            render();
-            await persist();
-        }
+        if (idx >= 0 && idx < table.rows.length - 1) { [table.rows[idx + 1], table.rows[idx]] = [table.rows[idx], table.rows[idx + 1]]; render(); await persist(); }
         return;
     }
 
     const editBtn = event.target.closest('[data-edit-row]');
-    if (editBtn) {
-        openRowModal(editBtn.dataset.editRow);
-        return;
-    }
+    if (editBtn) { openRowModal(editBtn.dataset.editRow); return; }
 
     const delBtn = event.target.closest('[data-delete-row]');
-    if (!delBtn) return;
-
-    if (!window.confirm('Delete this row?')) return;
+    if (!delBtn || !window.confirm('Delete this row?')) return;
     table.rows = table.rows.filter((r) => r.id !== delBtn.dataset.deleteRow);
-    render();
-    await persist();
+    render(); await persist();
 });
 
 window.addEventListener('popstate', () => {
     const url = new URL(window.location.href);
-    if (url.searchParams.get('view') === 'table') state.activeTableId = url.searchParams.get('table');
-    else state.activeTableId = null;
+    state.activeTableId = url.searchParams.get('view') === 'table' ? url.searchParams.get('table') : null;
     render();
 });
 
 initTheme();
-loadWorkspace();
+checkSession().then(loadUsersForSharing);
