@@ -179,7 +179,7 @@ function renderHome() {
         const tags = (table.tagIds || []).map((id) => {
             const tag = tagById(id);
             if (!tag) return '';
-            const color = tag.color || '#4f7cff';
+            const color = tag.color || '#d32f2f';
             const text = contrastColor(color);
             return `<span class="tag-pill" style="background:${escapeHtml(color)};color:${escapeHtml(text)};border-color:${escapeHtml(color)}">${escapeHtml(tag.name)}</span>`;
         }).join('');
@@ -734,7 +734,7 @@ if (rowSearchInput) rowSearchInput.addEventListener('input', () => { if (activeT
 
 if (addTagBtn) addTagBtn.addEventListener('click', async () => {
     const name = String(tagNameInput?.value || '').trim();
-    const color = String(tagColorInput?.value || '#4f7cff');
+    const color = String(tagColorInput?.value || '#d32f2f');
     if (!name) return;
     state.tags.push({ id: uid('tag'), name, color });
     if (tagNameInput) tagNameInput.value = '';
@@ -751,7 +751,7 @@ if (tagList) tagList.addEventListener('click', async (event) => {
         const name = window.prompt('Tag name:', tag.name);
         if (!name || !name.trim()) return;
         tag.name = name.trim();
-        const color = window.prompt('Tag color hex:', tag.color || '#4f7cff');
+        const color = window.prompt('Tag color hex:', tag.color || '#d32f2f');
         if (color && color.trim()) tag.color = color.trim();
         renderTagManager();
         render();

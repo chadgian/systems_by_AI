@@ -146,7 +146,7 @@ function ensureSeeded(string $username, array &$db): void {
                 if (!is_array($t)) return null;
                 $id = trim((string)($t['id'] ?? ''));
                 $name = trim((string)($t['name'] ?? ''));
-                $color = trim((string)($t['color'] ?? '#4f7cff'));
+                $color = trim((string)($t['color'] ?? '#d32f2f'));
                 if ($id === '' || $name === '') return null;
                 return ['id' => $id, 'name' => $name, 'color' => $color];
             }, $payload['tags'])));
@@ -402,7 +402,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                 if (!is_array($t)) return null;
                 $id = trim((string)($t['id'] ?? ''));
                 $name = trim((string)($t['name'] ?? ''));
-                $color = trim((string)($t['color'] ?? '#4f7cff'));
+                $color = trim((string)($t['color'] ?? '#d32f2f'));
                 if ($id === '' || $name === '') return null;
                 return ['id' => $id, 'name' => $name, 'color' => $color];
             }, $payload['tags'])));
@@ -573,7 +573,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <dialog id="mergeModal" class="modal"><form method="dialog" id="mergeForm" class="modal-form"><h3>Merge related table</h3><p class="muted">Choose a relation column from this table, then choose columns from the linked table.</p><select id="mergeRelationSelect"></select><div id="mergeColumnChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="applyMergeBtn" value="default">Apply merge</button></menu></form></dialog>
     <dialog id="shareModal" class="modal"><form method="dialog" id="shareForm" class="modal-form"><h3>Share table</h3><p class="muted">Choose users and permission level.</p><div id="shareUsersList" class="share-grid"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveShareBtn" value="default">Save sharing</button></menu></form></dialog>
 
-    <dialog id="tagModal" class="modal"><form method="dialog" id="tagForm" class="modal-form"><h3>Manage tags</h3><div class="row"><input id="tagNameInput" type="text" placeholder="Tag name"><input id="tagColorInput" type="color" value="#4f7cff"><button id="addTagBtn" type="button">Add tag</button></div><div id="tagList" class="list"></div><menu><button value="cancel" class="ghost">Close</button></menu></form></dialog>
+    <dialog id="tagModal" class="modal"><form method="dialog" id="tagForm" class="modal-form"><h3>Manage tags</h3><div class="row"><input id="tagNameInput" type="text" placeholder="Tag name"><input id="tagColorInput" type="color" value="#d32f2f"><button id="addTagBtn" type="button">Add tag</button></div><div id="tagList" class="list"></div><menu><button value="cancel" class="ghost">Close</button></menu></form></dialog>
 
     <script src="script.js"></script>
 <?php endif; ?>
