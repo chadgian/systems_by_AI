@@ -540,12 +540,11 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                 <span class="muted" id="currentUserLabel"></span>
                 <button class="ghost" id="themeToggleBtn" type="button" aria-label="Switch to dark mode">🌙 Dark mode</button>
                 <a class="ghost" href="../../index.php">Home</a><button class="ghost" id="logoutBtn" type="button">Log out</button>
-                <button class="ghost" id="activityBellBtn" type="button">🔔 Activities <span id="activityUnreadBadge" class="badge-dot" hidden>0</span></button>
+                <button class="ghost" id="activityBellBtn" type="button">🔔 <span id="activityUnreadBadge" class="badge-dot" hidden>0</span></button>
                 <div class="activity-dropdown" id="activityDropdown" hidden>
                     <div class="section-head"><h3 style="margin:0;">Database activities</h3><button class="ghost" id="closeActivityDropdownBtn" type="button">Close</button></div>
                     <div class="inline-actions">
                         <select id="activityTableFilter"><option value="">All tables</option></select>
-                        <input id="activityUserFilter" type="search" placeholder="User">
                         <select id="activityTypeFilter"><option value="">All</option><option value="create_table">Create</option><option value="update_table">Edit</option><option value="delete_table">Delete</option><option value="share_update">Share</option><option value="edit_row">Row edit</option><option value="create_row">Row create</option><option value="delete_row">Row delete</option><option value="edit_column">Column edit</option><option value="create_column">Column create</option><option value="delete_column">Column delete</option></select>
                         <input id="activityDateFilter" type="date">
                     </div>

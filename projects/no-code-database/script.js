@@ -27,7 +27,6 @@ const pageTitle = document.getElementById('pageTitle');
 const pageSubtitle = document.getElementById('pageSubtitle');
 const activityList = document.getElementById('activityList');
 const activityTableFilter = document.getElementById('activityTableFilter');
-const activityUserFilter = document.getElementById('activityUserFilter');
 const activityTypeFilter = document.getElementById('activityTypeFilter');
 const activityDateFilter = document.getElementById('activityDateFilter');
 const activityBellBtn = document.getElementById('activityBellBtn');
@@ -322,7 +321,6 @@ async function logActivity(tableId, action, details = '') {
 function renderActivities() {
     if (!activityList) return;
     const tableFilter = String(activityTableFilter?.value || '');
-    const userFilter = String(activityUserFilter?.value || '').toLowerCase().trim();
     const typeFilter = String(activityTypeFilter?.value || '');
     const dateFilter = String(activityDateFilter?.value || '');
 
@@ -336,7 +334,6 @@ function renderActivities() {
     const lastRead = window.localStorage.getItem(activityReadKey()) || '';
     const items = [...state.activities]
         .filter((a) => !tableFilter || a.tableId === tableFilter)
-        .filter((a) => !userFilter || String(a.user || '').toLowerCase().includes(userFilter))
         .filter((a) => !typeFilter || String(a.action || '') === typeFilter)
         .filter((a) => !dateFilter || String(a.timestamp || '').slice(0,10) === dateFilter)
         .sort((a,b) => String(b.timestamp||'').localeCompare(String(a.timestamp||'')));
@@ -352,8 +349,8 @@ function renderActivities() {
         <li class="${unreadClass}">
             <div>
                 <strong>${escapeHtml(a.tableName || 'Table')}</strong>
-                <small class="muted">${escapeHtml(a.user || '')} • ${escapeHtml(actionLabel)} • ${escapeHtml(new Date(a.timestamp || Date.now()).toLocaleString())}</small>
-                ${a.details ? `<div class="muted">${escapeHtml(a.details)}</div>` : ''}
+                <small class="muted">${escapeHtml(actionLabel)} • ${escapeHtml(new Date(a.timestamp || Date.now()).toLocaleString())}</small>
+                <div class="muted">${escapeHtml(a.user || '')}${a.details ? ` • ${escapeHtml(a.details)}` : ''}</div>
             </div>
         </li>
     `;
@@ -991,7 +988,6 @@ if (tableSearchInput) tableSearchInput.addEventListener('input', render);
 if (tagFilterSelect) tagFilterSelect.addEventListener('change', render);
 if (rowSearchInput) rowSearchInput.addEventListener('input', () => { if (activeTable()) renderRows(activeTable()); });
 if (activityTableFilter) activityTableFilter.addEventListener('change', renderActivities);
-if (activityUserFilter) activityUserFilter.addEventListener('input', renderActivities);
 if (activityTypeFilter) activityTypeFilter.addEventListener('change', renderActivities);
 if (activityDateFilter) activityDateFilter.addEventListener('change', renderActivities);
 

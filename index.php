@@ -158,7 +158,7 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
         <?php else: ?>
             <div class="controls">
                 <div class="controls-row">
-                    <input id="projectSearch" type="search" placeholder="Search projects by name or tag">
+                    <input id="projectSearch" type="search" placeholder="Search projects by name">
                     <select id="projectTagFilter"><option value="">All tags</option></select>
                 </div>
                 <div class="controls-row">
@@ -245,7 +245,7 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
   function renderTagAdmin(){
     if(!tagAdminList || !tagProjectSelect) return;
     const project=tagProjectSelect.value; const tags=normalizeProjectTags(project);
-    tagAdminList.innerHTML=tags.length?tags.map((t,i)=>`<div class="tag-admin-item"><span><span class="tag-dot" style="background:${esc(t.color||'#24305E')}"></span> ${esc(t.name)}</span><button type="button" data-edit-tag="${i}">Edit</button></div>`).join(''):'<small class="muted">No tags for selected project.</small>';
+    tagAdminList.innerHTML=tags.length?tags.map((t,i)=>`<div class="tag-admin-item"><span><span class="tag-dot" style="background:${esc(t.color||'#24305E')}"></span> ${esc(t.name)}</span><div class="inline-actions"><button type="button" data-edit-tag="${i}">Edit</button><button type="button" class="reorder-btn" data-delete-tag="${i}">Delete</button></div></div>`).join(''):'<small class="muted">No tags for selected project.</small>';
   }
 
   function fillProjectSelect(){ if(tagProjectSelect) tagProjectSelect.innerHTML=items.map(li=>`<option value="${esc(li.dataset.project)}">${esc(li.dataset.project)}</option>`).join(''); }
@@ -265,7 +265,7 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
   }
 
   list.addEventListener('click',e=>{const btn=e.target.closest('[data-move]'); if(!btn) return; const li=e.target.closest('.project-item'); if(!li)return; if(btn.dataset.move==='up'&&li.previousElementSibling) list.insertBefore(li,li.previousElementSibling); if(btn.dataset.move==='down'&&li.nextElementSibling) list.insertBefore(li.nextElementSibling,li); saveOrder();});
-  tagAdminList?.addEventListener('click',e=>{const b=e.target.closest('[data-edit-tag]'); if(!b) return; const project=tagProjectSelect.value; const tags=normalizeProjectTags(project); const tag=tags[Number(b.dataset.editTag)]; if(!tag) return; newTagInput.value=tag.name; newTagColor.value=tag.color||'#d32f2f'; if(projectTagColorPreview) projectTagColorPreview.style.background=newTagColor.value;});
+  tagAdminList?.addEventListener('click',e=>{const edit=e.target.closest('[data-edit-tag]'); const del=e.target.closest('[data-delete-tag]'); const project=tagProjectSelect.value; const tags=normalizeProjectTags(project); if(edit){ const tag=tags[Number(edit.dataset.editTag)]; if(!tag) return; newTagInput.value=tag.name; newTagColor.value=tag.color||'#d32f2f'; if(projectTagColorPreview) projectTagColorPreview.style.background=newTagColor.value; return;} if(del){ const idx=Number(del.dataset.deleteTag); if(Number.isNaN(idx)) return; tags.splice(idx,1); tagsByProject[project]=tags; renderTags(); applyFilter(); }});
   addTagBtn?.addEventListener('click',()=>{const project=tagProjectSelect.value; const name=(newTagInput.value||'').trim(); if(!project||!name) return; const color=newTagColor.value||'#d32f2f'; const tags=normalizeProjectTags(project); const idx=tags.findIndex(t=>t.name.toLowerCase()===name.toLowerCase()); if(idx>=0) tags[idx].color=color; else tags.push({name,color}); tagsByProject[project]=tags; newTagInput.value=''; renderTags(); applyFilter();});
   deleteTagBtn?.addEventListener('click',()=>{const project=tagProjectSelect.value; const name=(newTagInput.value||'').trim(); if(!project||!name) return; tagsByProject[project]=normalizeProjectTags(project).filter(t=>t.name.toLowerCase()!==name.toLowerCase()); newTagInput.value=''; renderTags(); applyFilter();});
 

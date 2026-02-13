@@ -71,17 +71,24 @@ body { margin: 0; background: transparent; color: var(--text); }
     position: absolute;
     top: calc(100% + .5rem);
     right: 0;
-    width: min(680px, 92vw);
-    max-height: 70vh;
+    width: min(560px, 92vw);
+    max-height: 62vh;
     overflow: auto;
     background: var(--card-bg);
     border: 1px solid var(--input-border);
     border-radius: 12px;
     box-shadow: var(--card-shadow);
-    padding: .75rem;
+    padding: .55rem;
     z-index: 20;
 }
-.activity-unread { border-left: 4px solid #d32f2f !important; }
+.activity-unread { border-left: 3px solid #d32f2f !important; }
+#activityDropdown .inline-actions { gap: .3rem; }
+#activityDropdown .inline-actions input,
+#activityDropdown .inline-actions select { padding: .38rem .48rem; border-radius: 8px; font-size: .88rem; }
+#activityList { margin-top: .45rem; gap: .35rem; }
+#activityList li { padding: .45rem .55rem; }
+#activityList strong { font-size: .92rem; }
+#activityList small, #activityList .muted { font-size: .8rem; }
 .eyebrow { margin: 0; color: var(--primary); font-weight: 700; letter-spacing: .08em; font-size: .78rem; }
 h1 { margin: .4rem 0 .6rem; }
 h2, h3 { margin: 0; }
