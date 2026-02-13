@@ -311,83 +311,140 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<main class="layout" id="authView">
-    <section class="card auth-card">
-        <h1>No-Code Data Builder</h1>
-        <p class="muted">Log in or create an account to manage your private tables and shared databases.</p>
-        <div class="auth-grid">
-            <form id="loginForm" class="modal-form">
-                <h3>Log in</h3>
-                <input name="username" type="text" placeholder="Username" required>
-                <input name="password" type="password" placeholder="Password" required>
-                <button type="submit">Log in</button>
-            </form>
-            <form id="signupForm" class="modal-form">
-                <h3>Create account</h3>
-                <input name="username" type="text" placeholder="Username" required>
-                <input name="password" type="password" placeholder="Password (min 6 chars)" required>
-                <button type="submit">Sign up</button>
-            </form>
-        </div>
-        <p id="authMessage" class="muted"></p>
-    </section>
-</main>
+<?php $isAuthenticated = isset($_SESSION['user']); ?>
+<?php if (!$isAuthenticated): ?>
+    <?php $authPage = (($_GET['page'] ?? 'login') === 'signup') ? 'signup' : 'login'; ?>
+    <main class="layout" id="authView">
+        <section class="card auth-card">
+            <h1>No-Code Data Builder</h1>
+            <p class="muted">Please <?php echo $authPage === 'signup' ? 'create an account' : 'log in'; ?> to continue.</p>
 
-<main class="layout" id="appRoot" hidden>
-    <header class="hero card">
-        <div>
-            <p class="eyebrow">NO-CODE DATA BUILDER</p>
-            <h1 id="pageTitle">Your tables</h1>
-            <p id="pageSubtitle" class="muted">Start by creating or selecting a table.</p>
-        </div>
-        <div class="hero-actions">
-            <span class="muted" id="currentUserLabel"></span>
-            <button class="ghost" id="themeToggleBtn" type="button" aria-label="Switch to dark mode">🌙 Dark mode</button>
-            <button class="ghost" id="logoutBtn" type="button">Log out</button>
-            <div class="badge" id="saveState">Ready</div>
-        </div>
-    </header>
+            <?php if ($authPage === 'login'): ?>
+                <form id="loginForm" class="modal-form auth-single">
+                    <h3>Log in</h3>
+                    <input name="username" type="text" placeholder="Username" required>
+                    <input name="password" type="password" placeholder="Password" required>
+                    <button type="submit">Log in</button>
+                    <p class="muted">No account yet? <a href="?page=signup">Create one</a></p>
+                </form>
+            <?php else: ?>
+                <form id="signupForm" class="modal-form auth-single">
+                    <h3>Create account</h3>
+                    <input name="username" type="text" placeholder="Username" required>
+                    <input name="password" type="password" placeholder="Password (min 6 chars)" required>
+                    <button type="submit">Sign up</button>
+                    <p class="muted">Already have an account? <a href="?page=login">Log in</a></p>
+                </form>
+            <?php endif; ?>
 
-    <section class="card" id="homeView">
-        <div class="section-head">
-            <h2>Tables</h2>
-            <button id="openCreateTableModalBtn">Create table</button>
-        </div>
-        <ul id="tableList" class="list"></ul>
-    </section>
+            <p id="authMessage" class="muted"></p>
+        </section>
+    </main>
 
-    <section class="card" id="tableView" hidden>
-        <div class="section-head">
-            <h2 id="activeTableTitle">Table</h2>
-            <div class="inline-actions">
-                <button class="ghost" id="backToHomeBtn">Back to tables</button>
-                <button class="ghost" id="openShareModalBtn">Share</button>
-                <button id="openMergeModalBtn">Merge related table</button>
-                <button id="openAddRowModalBtn">Add row</button>
+    <script>
+        const authMessage = document.getElementById('authMessage');
+        const loginForm = document.getElementById('loginForm');
+        const signupForm = document.getElementById('signupForm');
+
+        if (loginForm) {
+            loginForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const fd = new FormData(loginForm);
+                const response = await fetch('index.php?auth=login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: String(fd.get('username') || '').trim(),
+                        password: String(fd.get('password') || ''),
+                    }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    authMessage.textContent = data.message || 'Login failed.';
+                    return;
+                }
+                window.location.href = 'index.php';
+            });
+        }
+
+        if (signupForm) {
+            signupForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const fd = new FormData(signupForm);
+                const response = await fetch('index.php?auth=signup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: String(fd.get('username') || '').trim(),
+                        password: String(fd.get('password') || ''),
+                    }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    authMessage.textContent = data.message || 'Sign up failed.';
+                    return;
+                }
+                window.location.href = 'index.php';
+            });
+        }
+    </script>
+<?php else: ?>
+    <main class="layout" id="appRoot">
+        <header class="hero card">
+            <div>
+                <p class="eyebrow">NO-CODE DATA BUILDER</p>
+                <h1 id="pageTitle">Your tables</h1>
+                <p id="pageSubtitle" class="muted">Start by creating or selecting a table.</p>
             </div>
-        </div>
+            <div class="hero-actions">
+                <span class="muted" id="currentUserLabel"></span>
+                <button class="ghost" id="themeToggleBtn" type="button" aria-label="Switch to dark mode">🌙 Dark mode</button>
+                <button class="ghost" id="logoutBtn" type="button">Log out</button>
+                <div class="badge" id="saveState">Ready</div>
+            </div>
+        </header>
 
-        <div class="panel-block">
+        <section class="card" id="homeView">
             <div class="section-head">
-                <h3>Columns</h3>
-                <button class="ghost" id="openAddColumnModalBtn">Add column</button>
+                <h2>Tables</h2>
+                <button id="openCreateTableModalBtn">Create table</button>
             </div>
-            <ul id="columnList" class="list"></ul>
-        </div>
+            <ul id="tableList" class="list"></ul>
+        </section>
 
-        <div class="panel-block">
-            <h3>Rows</h3>
-            <div class="table-wrap"><table id="dataTable"></table></div>
-        </div>
-    </section>
-</main>
+        <section class="card" id="tableView" hidden>
+            <div class="section-head">
+                <h2 id="activeTableTitle">Table</h2>
+                <div class="inline-actions">
+                    <button class="ghost" id="backToHomeBtn">Back to tables</button>
+                    <button class="ghost" id="openShareModalBtn">Share</button>
+                    <button id="openMergeModalBtn">Merge related table</button>
+                    <button id="openAddRowModalBtn">Add row</button>
+                </div>
+            </div>
 
-<dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
-<dialog id="columnModal" class="modal"><form method="dialog" id="columnForm" class="modal-form"><h3 id="columnModalTitle">Add column</h3><input id="columnNameInput" type="text" placeholder="Column name" required><select id="columnTypeInput"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="yesno">Yes / No</option><option value="dropdown">Dropdown</option><option value="relation">Relation</option><option value="remarks">Remarks (timestamped append)</option></select><input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden><div id="relationConfig" class="row" hidden><select id="relationTableInput"></select><select id="relationColumnInput"></select></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveColumnBtn" value="default">Save</button></menu></form></dialog>
-<dialog id="rowModal" class="modal"><form method="dialog" id="rowForm" class="modal-form"><h3 id="rowModalTitle">Add row</h3><div id="rowFields"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveRowBtn" value="default">Save</button></menu></form></dialog>
-<dialog id="mergeModal" class="modal"><form method="dialog" id="mergeForm" class="modal-form"><h3>Merge related table</h3><p class="muted">Choose a relation column from this table, then choose columns from the linked table.</p><select id="mergeRelationSelect"></select><div id="mergeColumnChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="applyMergeBtn" value="default">Apply merge</button></menu></form></dialog>
-<dialog id="shareModal" class="modal"><form method="dialog" id="shareForm" class="modal-form"><h3>Share table</h3><p class="muted">Choose users and permission level.</p><div id="shareUsersList" class="share-grid"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveShareBtn" value="default">Save sharing</button></menu></form></dialog>
+            <div class="panel-block">
+                <div class="section-head">
+                    <h3>Columns</h3>
+                    <button class="ghost" id="openAddColumnModalBtn">Add column</button>
+                </div>
+                <ul id="columnList" class="list"></ul>
+            </div>
 
-<script src="script.js"></script>
+            <div class="panel-block">
+                <h3>Rows</h3>
+                <div class="table-wrap"><table id="dataTable"></table></div>
+            </div>
+        </section>
+    </main>
+
+    <dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
+    <dialog id="columnModal" class="modal"><form method="dialog" id="columnForm" class="modal-form"><h3 id="columnModalTitle">Add column</h3><input id="columnNameInput" type="text" placeholder="Column name" required><select id="columnTypeInput"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="yesno">Yes / No</option><option value="dropdown">Dropdown</option><option value="relation">Relation</option><option value="remarks">Remarks (timestamped append)</option></select><input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden><div id="relationConfig" class="row" hidden><select id="relationTableInput"></select><select id="relationColumnInput"></select></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveColumnBtn" value="default">Save</button></menu></form></dialog>
+    <dialog id="rowModal" class="modal"><form method="dialog" id="rowForm" class="modal-form"><h3 id="rowModalTitle">Add row</h3><div id="rowFields"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveRowBtn" value="default">Save</button></menu></form></dialog>
+    <dialog id="mergeModal" class="modal"><form method="dialog" id="mergeForm" class="modal-form"><h3>Merge related table</h3><p class="muted">Choose a relation column from this table, then choose columns from the linked table.</p><select id="mergeRelationSelect"></select><div id="mergeColumnChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="applyMergeBtn" value="default">Apply merge</button></menu></form></dialog>
+    <dialog id="shareModal" class="modal"><form method="dialog" id="shareForm" class="modal-form"><h3>Share table</h3><p class="muted">Choose users and permission level.</p><div id="shareUsersList" class="share-grid"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveShareBtn" value="default">Save sharing</button></menu></form></dialog>
+
+    <script src="script.js"></script>
+<?php endif; ?>
 </body>
 </html>

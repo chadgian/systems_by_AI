@@ -100,7 +100,7 @@ function applyTheme(theme) {
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
     document.documentElement.dataset.theme = nextTheme;
     const dark = nextTheme === 'dark';
-    themeToggleBtn.textContent = dark ? '☀️ Light mode' : '🌙 Dark mode';
+    if (themeToggleBtn) themeToggleBtn.textContent = dark ? '☀️ Light mode' : '🌙 Dark mode';
 }
 
 function initTheme() {
@@ -273,14 +273,14 @@ async function loadWorkspace() {
 }
 
 function showAuth(message = '') {
-    authView.hidden = false;
-    appRoot.hidden = true;
-    authMessage.textContent = message;
+    if (authView) authView.hidden = false;
+    if (appRoot) appRoot.hidden = true;
+    if (authMessage) authMessage.textContent = message;
 }
 
 function showApp() {
-    authView.hidden = true;
-    appRoot.hidden = false;
+    if (authView) authView.hidden = true;
+    if (appRoot) appRoot.hidden = false;
 }
 
 async function checkSession() {
@@ -390,7 +390,7 @@ function openShareModal() {
     shareModal.showModal();
 }
 
-loginForm.addEventListener('submit', async (event) => {
+if (loginForm) loginForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const fd = new FormData(loginForm);
     const response = await fetch('index.php?auth=login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: String(fd.get('username') || '').trim(), password: String(fd.get('password') || '') }) });
@@ -402,7 +402,7 @@ loginForm.addEventListener('submit', async (event) => {
     await loadWorkspace();
 });
 
-signupForm.addEventListener('submit', async (event) => {
+if (signupForm) signupForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const fd = new FormData(signupForm);
     const response = await fetch('index.php?auth=signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: String(fd.get('username') || '').trim(), password: String(fd.get('password') || '') }) });
@@ -414,7 +414,7 @@ signupForm.addEventListener('submit', async (event) => {
     await loadWorkspace();
 });
 
-logoutBtn.addEventListener('click', async () => {
+if (logoutBtn) logoutBtn.addEventListener('click', async () => {
     await fetch('index.php?auth=logout', { method: 'POST' });
     state.tables = [];
     state.relations = [];
@@ -422,29 +422,29 @@ logoutBtn.addEventListener('click', async () => {
     showAuth('Logged out.');
 });
 
-themeToggleBtn.addEventListener('click', () => {
+if (themeToggleBtn) themeToggleBtn.addEventListener('click', () => {
     const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
     const next = current === 'dark' ? 'light' : 'dark';
     applyTheme(next);
     window.localStorage.setItem('ncdb-theme', next);
 });
 
-openCreateTableModalBtn.addEventListener('click', () => openTableModal());
-backToHomeBtn.addEventListener('click', () => { state.activeTableId = null; state.mergeConfig = null; syncRoute(true); render(); });
-openAddColumnModalBtn.addEventListener('click', () => openColumnModal());
-openAddRowModalBtn.addEventListener('click', () => openRowModal());
-openMergeModalBtn.addEventListener('click', openMergeModal);
-openShareModalBtn.addEventListener('click', openShareModal);
+if (openCreateTableModalBtn) openCreateTableModalBtn.addEventListener('click', () => openTableModal());
+if (backToHomeBtn) backToHomeBtn.addEventListener('click', () => { state.activeTableId = null; state.mergeConfig = null; syncRoute(true); render(); });
+if (openAddColumnModalBtn) openAddColumnModalBtn.addEventListener('click', () => openColumnModal());
+if (openAddRowModalBtn) openAddRowModalBtn.addEventListener('click', () => openRowModal());
+if (openMergeModalBtn) openMergeModalBtn.addEventListener('click', openMergeModal);
+if (openShareModalBtn) openShareModalBtn.addEventListener('click', openShareModal);
 
-columnTypeInput.addEventListener('change', () => {
+if (columnTypeInput) columnTypeInput.addEventListener('change', () => {
     dropdownOptionsInput.hidden = columnTypeInput.value !== 'dropdown';
     relationConfig.hidden = columnTypeInput.value !== 'relation';
     if (columnTypeInput.value === 'relation') populateRelationConfig(relationTableInput.value, relationColumnInput.value);
 });
-relationTableInput.addEventListener('change', () => populateRelationConfig(relationTableInput.value));
-mergeRelationSelect.addEventListener('change', renderMergeColumnChoices);
+if (relationTableInput) relationTableInput.addEventListener('change', () => populateRelationConfig(relationTableInput.value));
+if (mergeRelationSelect) mergeRelationSelect.addEventListener('change', renderMergeColumnChoices);
 
-shareForm.addEventListener('submit', async (event) => {
+if (shareForm) shareForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const table = activeTable();
     if (!table || !isOwnerTable(table)) return;
@@ -458,7 +458,7 @@ shareForm.addEventListener('submit', async (event) => {
     await loadWorkspace();
 });
 
-mergeForm.addEventListener('submit', (event) => {
+if (mergeForm) mergeForm.addEventListener('submit', (event) => {
     event.preventDefault();
     const checked = Array.from(mergeColumnChoices.querySelectorAll('input:checked')).map((el) => el.value);
     if (!checked.length) return alert('Select at least one column.');
@@ -467,7 +467,7 @@ mergeForm.addEventListener('submit', (event) => {
     render();
 });
 
-tableForm.addEventListener('submit', async (event) => {
+if (tableForm) tableForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const name = tableNameInput.value.trim();
     if (!name) return;
@@ -480,7 +480,7 @@ tableForm.addEventListener('submit', async (event) => {
     tableModal.close(); render(); await persist();
 });
 
-columnForm.addEventListener('submit', async (event) => {
+if (columnForm) columnForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const table = activeTable();
     if (!table || !canEditTable(table)) return;
@@ -507,7 +507,7 @@ columnForm.addEventListener('submit', async (event) => {
     columnModal.close(); render(); await persist();
 });
 
-rowForm.addEventListener('submit', async (event) => {
+if (rowForm) rowForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const table = activeTable();
     if (!table || !canEditTable(table)) return;
@@ -534,7 +534,7 @@ rowForm.addEventListener('submit', async (event) => {
     rowModal.close(); render(); await persist();
 });
 
-tableList.addEventListener('click', async (event) => {
+if (tableList) tableList.addEventListener('click', async (event) => {
     const openBtn = event.target.closest('[data-open-table]');
     if (openBtn) { state.activeTableId = openBtn.dataset.openTable; state.mergeConfig = null; syncRoute(true); render(); return; }
 
@@ -549,7 +549,7 @@ tableList.addEventListener('click', async (event) => {
     render(); await persist();
 });
 
-columnList.addEventListener('click', async (event) => {
+if (columnList) columnList.addEventListener('click', async (event) => {
     const table = activeTable();
     if (!table || !canEditTable(table)) return;
 
@@ -578,7 +578,7 @@ columnList.addEventListener('click', async (event) => {
     render(); await persist();
 });
 
-dataTable.addEventListener('change', async (event) => {
+if (dataTable) dataTable.addEventListener('change', async (event) => {
     const table = activeTable();
     if (!table || !canEditTable(table)) return;
     const dropdown = event.target.closest('[data-inline-dropdown-row]');
@@ -589,7 +589,7 @@ dataTable.addEventListener('change', async (event) => {
     await persist();
 });
 
-dataTable.addEventListener('click', async (event) => {
+if (dataTable) dataTable.addEventListener('click', async (event) => {
     const table = activeTable();
     if (!table) return;
 
@@ -647,4 +647,4 @@ window.addEventListener('popstate', () => {
 });
 
 initTheme();
-checkSession().then(loadUsersForSharing);
+if (appRoot) { checkSession().then(loadUsersForSharing); }
