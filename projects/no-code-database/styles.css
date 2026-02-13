@@ -1,0 +1,41 @@
+:root {
+    font-family: Inter, Arial, sans-serif;
+    color-scheme: light;
+}
+body { margin: 0; background: #f4f7ff; color: #1b2340; }
+.layout { width: min(1200px, 95vw); margin: 1.5rem auto; display: grid; gap: 1rem; }
+.card { background: #fff; border: 1px solid #dbe3f5; border-radius: 14px; padding: 1rem; box-shadow: 0 10px 28px rgba(25, 45, 90, 0.08); }
+.hero { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
+.eyebrow { margin: 0; color: #355cff; font-weight: 700; letter-spacing: .08em; font-size: .78rem; }
+h1 { margin: .4rem 0 .6rem; }
+h2 { margin-top: 0; }
+.muted { color: #63739b; }
+.badge { background: #eaf0ff; color: #304ea2; padding: .45rem .75rem; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.grid { display: grid; grid-template-columns: 320px 1fr; gap: 1rem; }
+.split-top { grid-template-columns: 1fr 1fr; }
+.row { display: flex; gap: .5rem; margin-bottom: .6rem; }
+.wrap-row { flex-wrap: wrap; }
+input, select, button { border: 1px solid #d2dcf2; border-radius: 9px; padding: .5rem .55rem; font: inherit; }
+input, select { flex: 1; }
+button { background: #355cff; color: #fff; cursor: pointer; border-color: #355cff; }
+.list { list-style: none; padding: 0; margin: .5rem 0 0; display: grid; gap: .45rem; }
+.list li { border: 1px solid #e2e8f8; border-radius: 9px; padding: .5rem .55rem; display: flex; justify-content: space-between; gap: .6rem; align-items: center; background: #fbfcff; }
+.list li.active { border-color: #9cb2f8; background: #edf2ff; }
+button.ghost { background: #fff; border-color: #d2dcf2; color: #1f2d57; }
+button.danger { background: #fff4f4; border-color: #f0c8c8; color: #a42a2a; }
+.row-form { display: grid; gap: .5rem; margin-bottom: .7rem; }
+.table-wrap { overflow: auto; }
+#dataTable, #mergeTable { width: 100%; border-collapse: collapse; min-width: 520px; }
+#dataTable th, #dataTable td, #mergeTable th, #mergeTable td { border-bottom: 1px solid #e8edfb; padding: .45rem .5rem; text-align: left; }
+#dataTable th, #mergeTable th { background: #ecf2ff; }
+#dataTable tr:nth-child(even), #mergeTable tr:nth-child(even) { background: #f8fbff; }
+.merge-columns { display: grid; gap: .35rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-bottom: .8rem; }
+.chip-option { border: 1px solid #dbe3f5; border-radius: 8px; padding: .35rem .45rem; background: #fbfcff; display: flex; gap: .5rem; align-items: start; }
+@media (max-width: 900px) {
+    .grid, .split-top { grid-template-columns: 1fr; }
+    .hero { flex-direction: column; }
+}
+
+
+.inline-actions { display:flex; gap:.35rem; align-items:center; }
+#dataTable td:last-child { display:flex; gap:.35rem; flex-wrap:wrap; }
