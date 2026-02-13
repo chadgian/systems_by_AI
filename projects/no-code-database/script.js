@@ -28,11 +28,14 @@ const tableList = document.getElementById('tableList');
 const activeTableTitle = document.getElementById('activeTableTitle');
 const columnList = document.getElementById('columnList');
 const dataTable = document.getElementById('dataTable');
+const tableSearchInput = document.getElementById('tableSearchInput');
+const rowSearchInput = document.getElementById('rowSearchInput');
 
 const tableModal = document.getElementById('tableModal');
 const tableForm = document.getElementById('tableForm');
 const tableModalTitle = document.getElementById('tableModalTitle');
 const tableNameInput = document.getElementById('tableNameInput');
+const tableTagsInput = document.getElementById('tableTagsInput');
 
 const columnModal = document.getElementById('columnModal');
 const columnForm = document.getElementById('columnForm');
@@ -81,6 +84,10 @@ function parseOptions(raw) {
     return String(raw || '').split(',').map((p) => p.trim()).filter(Boolean);
 }
 
+function parseTags(raw) {
+    return String(raw || '').split(',').map((p) => p.trim()).filter(Boolean);
+}
+
 function syncRoute(push = false) {
     const url = new URL(window.location.href);
     if (state.activeTableId) {
@@ -124,17 +131,26 @@ function getDisplayValue(table, col, raw) {
 }
 
 function renderHome() {
-    if (!state.tables.length) {
-        tableList.innerHTML = '<li>No tables yet. Create your first one.</li>';
+    const query = String(tableSearchInput?.value || '').toLowerCase().trim();
+    const filtered = state.tables.filter((table) => {
+        if (!query) return true;
+        const tags = Array.isArray(table.tags) ? table.tags.join(' ') : '';
+        return `${table.name || ''} ${tags}`.toLowerCase().includes(query);
+    });
+
+    if (!filtered.length) {
+        tableList.innerHTML = state.tables.length ? '<li>No matching tables found.</li>' : '<li>No tables yet. Create your first one.</li>';
         return;
     }
 
-    tableList.innerHTML = state.tables.map((table) => {
-        const tag = table._permission === 'owner' ? 'Owner' : (table._permission === 'edit' ? 'Shared: edit' : 'Shared: view');
+    tableList.innerHTML = filtered.map((table) => {
+        const access = table._permission === 'owner' ? 'Owner' : (table._permission === 'edit' ? 'Shared: edit' : 'Shared: view');
+        const tags = (table.tags || []).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('');
         return `<li>
             <div>
                 <strong>${escapeHtml(table.name)}</strong>
-                <small class="muted">${table.columns?.length || 0} columns • ${table.rows?.length || 0} rows • ${tag} ${table._owner ? `• by ${escapeHtml(table._owner)}` : ''}</small>
+                <small class="muted">${table.columns?.length || 0} columns • ${table.rows?.length || 0} rows • ${access} ${table._owner ? `• by ${escapeHtml(table._owner)}` : ''}</small>
+                ${tags ? `<div class="tag-row">${tags}</div>` : ''}
             </div>
             <div class="inline-actions">
                 <button class="ghost" data-open-table="${table.id}">Open</button>
@@ -196,13 +212,24 @@ function renderInlineCell(table, row, col) {
     return escapeHtml(getDisplayValue(table, col, raw));
 }
 
+function rowMatchesSearch(table, row, query) {
+    if (!query) return true;
+    return table.columns.some((col) => {
+        const raw = row.values?.[col.id] ?? '';
+        return String(getDisplayValue(table, col, raw)).toLowerCase().includes(query);
+    });
+}
+
 function renderRows(table) {
     const editable = canEditTable(table);
     const mergedCols = mergedColumnsForTable(table);
     const cols = [...table.columns, ...mergedCols];
     const head = `<tr>${cols.map((c) => `<th>${escapeHtml(c.__label || c.name)}</th>`).join('')}<th>Actions</th></tr>`;
 
-    const body = (table.rows || []).length ? table.rows.map((row) => {
+    const query = String(rowSearchInput?.value || "").toLowerCase().trim();
+    const filteredRows = (table.rows || []).filter((row) => rowMatchesSearch(table, row, query));
+
+    const body = filteredRows.length ? filteredRows.map((row) => {
         const cells = cols.map((col) => {
             if (col.__merged) {
                 const relCol = table.columns.find((c) => c.id === state.mergeConfig.relationColumnId);
@@ -214,7 +241,7 @@ function renderRows(table) {
         }).join('');
 
         return `<tr>${cells}<td class="inline-actions">${editable ? `<button class="ghost" data-move-row-up="${row.id}">↑</button><button class="ghost" data-move-row-down="${row.id}">↓</button><button class="ghost" data-edit-row="${row.id}">Edit</button><button class="danger" data-delete-row="${row.id}">Delete</button>` : '<small class="muted">View only</small>'}</td></tr>`;
-    }).join('') : `<tr><td colspan="${cols.length + 1}">No rows yet.</td></tr>`;
+    }).join('') : `<tr><td colspan="${cols.length + 1}">${(table.rows || []).length ? "No matching rows." : "No rows yet."}</td></tr>`;
 
     dataTable.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
 }
@@ -306,6 +333,7 @@ function openTableModal(editId = null) {
     state.editingTableId = editId;
     tableModalTitle.textContent = editId ? 'Rename table' : 'Create table';
     tableNameInput.value = editId ? tableById(editId)?.name || '' : '';
+    if (tableTagsInput) tableTagsInput.value = editId ? (tableById(editId)?.tags || []).join(', ') : '';
     tableModal.showModal();
 }
 
@@ -467,12 +495,13 @@ if (mergeForm) mergeForm.addEventListener('submit', (event) => {
 if (tableForm) tableForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const name = tableNameInput.value.trim();
+    const tags = parseTags(tableTagsInput?.value || '');
     if (!name) return;
 
     if (state.editingTableId) {
         const table = tableById(state.editingTableId);
-        if (table && isOwnerTable(table)) table.name = name;
-    } else state.tables.push({ id: uid('tbl'), name, columns: [], rows: [], _permission: 'owner', _owner: state.currentUser, _sharedWith: {} });
+        if (table && isOwnerTable(table)) { table.name = name; table.tags = tags; }
+    } else state.tables.push({ id: uid('tbl'), name, tags, columns: [], rows: [], _permission: 'owner', _owner: state.currentUser, _sharedWith: {} });
 
     tableModal.close(); render(); await persist();
 });
@@ -636,6 +665,9 @@ if (dataTable) dataTable.addEventListener('click', async (event) => {
     table.rows = table.rows.filter((r) => r.id !== delBtn.dataset.deleteRow);
     render(); await persist();
 });
+
+if (tableSearchInput) tableSearchInput.addEventListener('input', render);
+if (rowSearchInput) rowSearchInput.addEventListener('input', () => { if (activeTable()) renderRows(activeTable()); });
 
 window.addEventListener('popstate', () => {
     const url = new URL(window.location.href);

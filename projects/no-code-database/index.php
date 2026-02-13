@@ -35,6 +35,7 @@ function buildSampleTables(string $owner): array {
             'owner' => $owner,
             'sharedWith' => new stdClass(),
             'name' => 'Teams',
+            'tags' => ['Operations', 'People'],
             'columns' => [
                 ['id' => 'col_team_name', 'name' => 'Team Name', 'type' => 'text'],
                 ['id' => 'col_region', 'name' => 'Region', 'type' => 'dropdown', 'options' => ['North', 'South', 'West', 'Remote']],
@@ -51,6 +52,7 @@ function buildSampleTables(string $owner): array {
             'owner' => $owner,
             'sharedWith' => new stdClass(),
             'name' => 'Customers',
+            'tags' => ['CRM', 'Revenue'],
             'columns' => [
                 ['id' => 'col_customer_name', 'name' => 'Customer Name', 'type' => 'text'],
                 ['id' => 'col_email', 'name' => 'Email', 'type' => 'text'],
@@ -70,6 +72,7 @@ function buildSampleTables(string $owner): array {
             'owner' => $owner,
             'sharedWith' => new stdClass(),
             'name' => 'Tasks',
+            'tags' => ['Execution', 'Delivery'],
             'columns' => [
                 ['id' => 'col_task_title', 'name' => 'Task', 'type' => 'text'],
                 ['id' => 'col_due_date', 'name' => 'Due Date', 'type' => 'date'],
@@ -88,6 +91,7 @@ function buildSampleTables(string $owner): array {
             'owner' => $owner,
             'sharedWith' => new stdClass(),
             'name' => 'Releases',
+            'tags' => ['Product', 'Roadmap'],
             'columns' => [
                 ['id' => 'col_release_name', 'name' => 'Release', 'type' => 'text'],
                 ['id' => 'col_release_date', 'name' => 'Release Date', 'type' => 'date'],
@@ -326,6 +330,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             $sanitized = [
                 'id' => $id,
                 'name' => (string)($table['name'] ?? 'Untitled table'),
+                'tags' => array_values(array_filter(array_map(fn($x) => trim((string)$x), is_array($table['tags'] ?? null) ? $table['tags'] : []))),
                 'columns' => is_array($table['columns'] ?? null) ? $table['columns'] : [],
                 'rows' => is_array($table['rows'] ?? null) ? $table['rows'] : [],
             ];
@@ -471,6 +476,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                 <h2>Tables</h2>
                 <button id="openCreateTableModalBtn">Create table</button>
             </div>
+            <input id="tableSearchInput" type="search" placeholder="Search tables by name or tag">
             <ul id="tableList" class="list"></ul>
         </section>
 
@@ -495,12 +501,13 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
 
             <div class="panel-block">
                 <h3>Rows</h3>
+                <input id="rowSearchInput" type="search" placeholder="Search rows in this table">
                 <div class="table-wrap"><table id="dataTable"></table></div>
             </div>
         </section>
     </main>
 
-    <dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
+    <dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><input id="tableTagsInput" type="text" placeholder="Tags (comma separated): CRM, Sales"><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="columnModal" class="modal"><form method="dialog" id="columnForm" class="modal-form"><h3 id="columnModalTitle">Add column</h3><input id="columnNameInput" type="text" placeholder="Column name" required><select id="columnTypeInput"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="yesno">Yes / No</option><option value="dropdown">Dropdown</option><option value="relation">Relation</option><option value="remarks">Remarks (timestamped append)</option></select><input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden><div id="relationConfig" class="row" hidden><select id="relationTableInput"></select><select id="relationColumnInput"></select></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveColumnBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="rowModal" class="modal"><form method="dialog" id="rowForm" class="modal-form"><h3 id="rowModalTitle">Add row</h3><div id="rowFields"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveRowBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="mergeModal" class="modal"><form method="dialog" id="mergeForm" class="modal-form"><h3>Merge related table</h3><p class="muted">Choose a relation column from this table, then choose columns from the linked table.</p><select id="mergeRelationSelect"></select><div id="mergeColumnChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="applyMergeBtn" value="default">Apply merge</button></menu></form></dialog>

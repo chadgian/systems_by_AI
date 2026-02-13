@@ -84,6 +84,11 @@ button:hover { filter: brightness(0.96); }
 .list li { border: 1px solid var(--list-border); border-radius: 9px; padding: .6rem .65rem; display: flex; justify-content: space-between; gap: .6rem; align-items: center; background: var(--list-bg); }
 .inline-actions { display:flex; gap:.35rem; align-items:center; flex-wrap: wrap; }
 
+#tableSearchInput, #rowSearchInput { width: min(420px, 100%); margin-bottom: .55rem; }
+.tag-row { margin-top: .35rem; display: flex; gap: .35rem; flex-wrap: wrap; }
+.tag-pill { border: 1px solid var(--chip-border); background: var(--list-bg); border-radius: 999px; padding: .12rem .55rem; font-size: .78rem; }
+
+
 .table-wrap { overflow: auto; border: 1px solid var(--table-wrap-border); border-radius: 10px; background: var(--card-bg); }
 #dataTable { width: 100%; border-collapse: collapse; min-width: 680px; }
 #dataTable th, #dataTable td { border-bottom: 1px solid var(--table-border); padding: .45rem .5rem; text-align: left; }
