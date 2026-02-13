@@ -162,13 +162,8 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
                     <select id="projectTagFilter"><option value="">All tags</option></select>
                 </div>
                 <div class="controls-row">
-                    <select id="tagProjectSelect"></select>
-                    <input id="newTagInput" type="text" placeholder="Tag name">
-                    <input id="newTagColor" type="color" value="#d32f2f" aria-label="Tag color">
-                    <button id="addTagBtn" type="button">Add / Update tag</button>
-                    <button id="deleteTagBtn" type="button">Delete tag</button>
+                    <button id="openProjectTagModalBtn" type="button">Manage project tags</button>
                 </div>
-                <div id="tagAdminList" class="tag-admin-list"></div>
             </div>
             <ul class="project-list" id="projectList">
                 <?php foreach ($projectItems as $project): ?>
@@ -188,6 +183,24 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
         <?php endif; ?>
     </section>
 </main>
+<dialog id="projectTagModal" class="panel" style="max-width:min(640px,94vw);">
+    <form method="dialog" id="projectTagForm" class="controls">
+        <h3 style="margin:0;">Manage project tags</h3>
+        <div class="controls-row">
+            <select id="tagProjectSelect"></select>
+            <input id="newTagInput" type="text" placeholder="Tag name">
+            <input id="newTagColor" type="color" value="#d32f2f" aria-label="Tag color">
+            <span id="projectTagColorPreview" class="tag-dot" style="width:24px;height:24px;"></span>
+        </div>
+        <div class="controls-row">
+            <button id="addTagBtn" type="button">Add / Update tag</button>
+            <button id="deleteTagBtn" type="button">Delete tag</button>
+            <button id="closeProjectTagModalBtn" type="button" class="reorder-btn">Close</button>
+        </div>
+        <div id="tagAdminList" class="tag-admin-list"></div>
+    </form>
+</dialog>
+
 <script>
 (() => {
   const esc=(v)=>String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
@@ -197,17 +210,21 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
   const tagProjectSelect = document.getElementById('tagProjectSelect');
   const newTagInput = document.getElementById('newTagInput');
   const newTagColor = document.getElementById('newTagColor');
+  const projectTagColorPreview = document.getElementById('projectTagColorPreview');
   const addTagBtn = document.getElementById('addTagBtn');
   const deleteTagBtn = document.getElementById('deleteTagBtn');
   const tagAdminList = document.getElementById('tagAdminList');
-  const orderKey='main-project-order-v2'; const tagsKey='main-project-tags-v2';
+  const openProjectTagModalBtn = document.getElementById('openProjectTagModalBtn');
+  const projectTagModal = document.getElementById('projectTagModal');
+  const closeProjectTagModalBtn = document.getElementById('closeProjectTagModalBtn');
+
+  const orderKey='main-project-order-v3'; const tagsKey='main-project-tags-v3';
   const items=Array.from(list.querySelectorAll('.project-item'));
   const tagsByProject=JSON.parse(localStorage.getItem(tagsKey)||'{}');
   let order=JSON.parse(localStorage.getItem(orderKey)||'[]');
 
   function normalizeProjectTags(project){
-    const t=tagsByProject[project];
-    if(!Array.isArray(t)) return [];
+    const t=tagsByProject[project]; if(!Array.isArray(t)) return [];
     return t.map(x=> typeof x==='string'?{name:x,color:'#24305E'}:x).filter(x=>x&&x.name);
   }
 
@@ -226,22 +243,42 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
   }
 
   function renderTagAdmin(){
-    const project=tagProjectSelect.value;
-    const tags=normalizeProjectTags(project);
+    if(!tagAdminList || !tagProjectSelect) return;
+    const project=tagProjectSelect.value; const tags=normalizeProjectTags(project);
     tagAdminList.innerHTML=tags.length?tags.map((t,i)=>`<div class="tag-admin-item"><span><span class="tag-dot" style="background:${esc(t.color||'#24305E')}"></span> ${esc(t.name)}</span><button type="button" data-edit-tag="${i}">Edit</button></div>`).join(''):'<small class="muted">No tags for selected project.</small>';
   }
 
-  function fillProjectSelect(){tagProjectSelect.innerHTML=items.map(li=>`<option value="${esc(li.dataset.project)}">${esc(li.dataset.project)}</option>`).join('');}
+  function fillProjectSelect(){ if(tagProjectSelect) tagProjectSelect.innerHTML=items.map(li=>`<option value="${esc(li.dataset.project)}">${esc(li.dataset.project)}</option>`).join(''); }
   function applyOrder(){if(!order.length)return;const m=new Map(items.map(li=>[li.dataset.project,li]));for(const n of order) if(m.get(n)) list.appendChild(m.get(n));for(const li of items) if(!order.includes(li.dataset.project)) list.appendChild(li)}
   function saveOrder(){order=Array.from(list.querySelectorAll('.project-item')).map(li=>li.dataset.project); localStorage.setItem(orderKey, JSON.stringify(order));}
-  function applyFilter(){const q=(search.value||'').toLowerCase().trim(); const st=tagFilter.value; items.forEach(li=>{const name=(li.dataset.project||'').toLowerCase(); const tags=normalizeProjectTags(li.dataset.project).map(t=>t.name); const byQ=!q||name.includes(q)||tags.join(' ').toLowerCase().includes(q); const byT=!st||tags.includes(st); li.hidden=!(byQ&&byT);});}
+
+  function applyFilter(){
+    const q=(search.value||'').toLowerCase().trim();
+    const selectedTag=tagFilter.value;
+    items.forEach(li=>{
+      const name=(li.dataset.project||'').toLowerCase();
+      const tags=normalizeProjectTags(li.dataset.project).map(t=>t.name);
+      const byName=!q || name.includes(q); // search by project name only
+      const byTag=!selectedTag || tags.includes(selectedTag);
+      li.hidden=!(byName && byTag);
+    });
+  }
 
   list.addEventListener('click',e=>{const btn=e.target.closest('[data-move]'); if(!btn) return; const li=e.target.closest('.project-item'); if(!li)return; if(btn.dataset.move==='up'&&li.previousElementSibling) list.insertBefore(li,li.previousElementSibling); if(btn.dataset.move==='down'&&li.nextElementSibling) list.insertBefore(li.nextElementSibling,li); saveOrder();});
-  tagAdminList?.addEventListener('click',e=>{const b=e.target.closest('[data-edit-tag]'); if(!b) return; const project=tagProjectSelect.value; const tags=normalizeProjectTags(project); const tag=tags[Number(b.dataset.editTag)]; if(!tag) return; newTagInput.value=tag.name; newTagColor.value=tag.color||'#d32f2f';});
+  tagAdminList?.addEventListener('click',e=>{const b=e.target.closest('[data-edit-tag]'); if(!b) return; const project=tagProjectSelect.value; const tags=normalizeProjectTags(project); const tag=tags[Number(b.dataset.editTag)]; if(!tag) return; newTagInput.value=tag.name; newTagColor.value=tag.color||'#d32f2f'; if(projectTagColorPreview) projectTagColorPreview.style.background=newTagColor.value;});
   addTagBtn?.addEventListener('click',()=>{const project=tagProjectSelect.value; const name=(newTagInput.value||'').trim(); if(!project||!name) return; const color=newTagColor.value||'#d32f2f'; const tags=normalizeProjectTags(project); const idx=tags.findIndex(t=>t.name.toLowerCase()===name.toLowerCase()); if(idx>=0) tags[idx].color=color; else tags.push({name,color}); tagsByProject[project]=tags; newTagInput.value=''; renderTags(); applyFilter();});
-  deleteTagBtn?.addEventListener('click',()=>{const project=tagProjectSelect.value; const name=(newTagInput.value||'').trim(); if(!project||!name) return; const tags=normalizeProjectTags(project).filter(t=>t.name.toLowerCase()!==name.toLowerCase()); tagsByProject[project]=tags; newTagInput.value=''; renderTags(); applyFilter();});
-  search?.addEventListener('input',applyFilter); tagFilter?.addEventListener('change',applyFilter); tagProjectSelect?.addEventListener('change',renderTagAdmin);
+  deleteTagBtn?.addEventListener('click',()=>{const project=tagProjectSelect.value; const name=(newTagInput.value||'').trim(); if(!project||!name) return; tagsByProject[project]=normalizeProjectTags(project).filter(t=>t.name.toLowerCase()!==name.toLowerCase()); newTagInput.value=''; renderTags(); applyFilter();});
+
+  openProjectTagModalBtn?.addEventListener('click',()=>{renderTagAdmin(); projectTagModal?.showModal();});
+  closeProjectTagModalBtn?.addEventListener('click',()=>projectTagModal?.close());
+  newTagColor?.addEventListener('input',()=>{ if(projectTagColorPreview) projectTagColorPreview.style.background=newTagColor.value; });
+
+  search?.addEventListener('input',applyFilter);
+  tagFilter?.addEventListener('change',applyFilter);
+  tagProjectSelect?.addEventListener('change',renderTagAdmin);
+
   fillProjectSelect(); applyOrder(); renderTags(); applyFilter();
+  if(projectTagColorPreview && newTagColor) projectTagColorPreview.style.background=newTagColor.value;
 })();
 </script>
 

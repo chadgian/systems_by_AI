@@ -65,7 +65,23 @@ body { margin: 0; background: transparent; color: var(--text); }
 .layout { width: min(1320px, 97vw); margin: 1.25rem auto; display: grid; gap: 1rem; }
 .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 14px; padding: 1rem; box-shadow: var(--card-shadow); }
 .hero { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
-.hero-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.hero-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; position: relative; }
+.badge-dot { background: #d32f2f; color: #fff; border-radius: 999px; padding: 0 .4rem; font-size: .75rem; margin-left: .3rem; }
+.activity-dropdown {
+    position: absolute;
+    top: calc(100% + .5rem);
+    right: 0;
+    width: min(680px, 92vw);
+    max-height: 70vh;
+    overflow: auto;
+    background: var(--card-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 12px;
+    box-shadow: var(--card-shadow);
+    padding: .75rem;
+    z-index: 20;
+}
+.activity-unread { border-left: 4px solid #d32f2f !important; }
 .eyebrow { margin: 0; color: var(--primary); font-weight: 700; letter-spacing: .08em; font-size: .78rem; }
 h1 { margin: .4rem 0 .6rem; }
 h2, h3 { margin: 0; }

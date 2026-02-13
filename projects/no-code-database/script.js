@@ -30,6 +30,10 @@ const activityTableFilter = document.getElementById('activityTableFilter');
 const activityUserFilter = document.getElementById('activityUserFilter');
 const activityTypeFilter = document.getElementById('activityTypeFilter');
 const activityDateFilter = document.getElementById('activityDateFilter');
+const activityBellBtn = document.getElementById('activityBellBtn');
+const activityUnreadBadge = document.getElementById('activityUnreadBadge');
+const activityDropdown = document.getElementById('activityDropdown');
+const closeActivityDropdownBtn = document.getElementById('closeActivityDropdownBtn');
 
 const homeView = document.getElementById('homeView');
 const tableView = document.getElementById('tableView');
@@ -204,6 +208,7 @@ async function importIntoCurrentTable(file) {
     table.tagIds = normalized.tagIds.filter((id) => state.tags.some((tag) => tag.id === id));
 
     render();
+    updateUnreadBadge();
     await persist();
 }
 
@@ -289,6 +294,21 @@ function getDisplayValue(table, col, raw) {
     return String(targetRow?.values?.[targetColumn?.id] ?? '');
 }
 
+function activityReadKey() { return `ncdb-activity-read-${state.currentUser || 'anon'}`; }
+
+function markActivitiesRead() {
+    window.localStorage.setItem(activityReadKey(), new Date().toISOString());
+    updateUnreadBadge();
+}
+
+function updateUnreadBadge() {
+    if (!activityUnreadBadge) return;
+    const lastRead = window.localStorage.getItem(activityReadKey()) || '';
+    const unread = (state.activities || []).filter((a) => String(a.timestamp || '') > lastRead).length;
+    activityUnreadBadge.hidden = unread === 0;
+    activityUnreadBadge.textContent = String(unread);
+}
+
 async function logActivity(tableId, action, details = '') {
     try {
         await fetch('index.php?activity=1', {
@@ -313,6 +333,7 @@ function renderActivities() {
         activityTableFilter.value = tableOptions.some(([id]) => id === cur) ? cur : '';
     }
 
+    const lastRead = window.localStorage.getItem(activityReadKey()) || '';
     const items = [...state.activities]
         .filter((a) => !tableFilter || a.tableId === tableFilter)
         .filter((a) => !userFilter || String(a.user || '').toLowerCase().includes(userFilter))
@@ -324,15 +345,20 @@ function renderActivities() {
         activityList.innerHTML = '<li>No activities match your filters.</li>';
         return;
     }
-    activityList.innerHTML = items.map((a) => `
-        <li>
+    activityList.innerHTML = items.map((a) => {
+        const unreadClass = String(a.timestamp || '') > lastRead ? 'activity-unread' : '';
+        const actionLabel = String(a.action || 'update').replaceAll('_', ' ');
+        return `
+        <li class="${unreadClass}">
             <div>
                 <strong>${escapeHtml(a.tableName || 'Table')}</strong>
-                <small class="muted">${escapeHtml(a.user || '')} • ${escapeHtml(a.action || 'update')} • ${escapeHtml(new Date(a.timestamp || Date.now()).toLocaleString())}</small>
+                <small class="muted">${escapeHtml(a.user || '')} • ${escapeHtml(actionLabel)} • ${escapeHtml(new Date(a.timestamp || Date.now()).toLocaleString())}</small>
                 ${a.details ? `<div class="muted">${escapeHtml(a.details)}</div>` : ''}
             </div>
         </li>
-    `).join('');
+    `;
+    }).join('');
+    updateUnreadBadge();
 }
 
 function renderTagFilter() {
@@ -783,7 +809,7 @@ if (tableForm) tableForm.addEventListener('submit', async (event) => {
     }
 
     tableModal.close(); render(); await persist();
-    if (changedTableId) await logActivity(changedTableId, state.editingTableId ? 'update_table' : 'create_table');
+    if (changedTableId) await logActivity(changedTableId, state.editingTableId ? 'update_table' : 'create_table', `${name} (${tagIds.length} tags)`);
 });
 
 if (columnForm) columnForm.addEventListener('submit', async (event) => {
@@ -811,7 +837,7 @@ if (columnForm) columnForm.addEventListener('submit', async (event) => {
     } else table.columns.push({ id: uid('col'), ...payload });
 
     columnModal.close(); render(); await persist();
-    await logActivity(table.id, state.editingColumnId ? 'edit_column' : 'create_column', name);
+    await logActivity(table.id, state.editingColumnId ? 'edit_column' : 'create_column', `${name} [${type}]`);
 });
 
 if (rowForm) rowForm.addEventListener('submit', async (event) => {
@@ -839,7 +865,7 @@ if (rowForm) rowForm.addEventListener('submit', async (event) => {
     } else table.rows.push({ id: uid('row'), values });
 
     rowModal.close(); render(); await persist();
-    await logActivity(table.id, state.editingRowId ? 'edit_row' : 'create_row');
+    await logActivity(table.id, state.editingRowId ? 'edit_row' : 'create_row', JSON.stringify(values));
 });
 
 if (tableListMine || tableListShared) [tableListMine, tableListShared].filter(Boolean).forEach((listEl) => listEl.addEventListener('click', async (event) => {
@@ -1044,6 +1070,19 @@ if (tagColorInput) tagColorInput.addEventListener('input', () => { if (tagColorP
 if (tagEditColorInput) tagEditColorInput.addEventListener('input', () => { if (tagEditColorPreview) tagEditColorPreview.style.background = tagEditColorInput.value; });
 if (tagColorPreview && tagColorInput) tagColorPreview.style.background = tagColorInput.value;
 if (tagEditColorPreview && tagEditColorInput) tagEditColorPreview.style.background = tagEditColorInput.value;
+
+
+if (activityBellBtn) activityBellBtn.addEventListener('click', () => {
+    if (!activityDropdown) return;
+    const isHidden = activityDropdown.hidden;
+    activityDropdown.hidden = !isHidden;
+    if (isHidden) renderActivities();
+});
+if (closeActivityDropdownBtn) closeActivityDropdownBtn.addEventListener('click', () => {
+    if (activityDropdown) activityDropdown.hidden = true;
+    markActivitiesRead();
+    renderActivities();
+});
 
 window.addEventListener('popstate', () => {
     const url = new URL(window.location.href);

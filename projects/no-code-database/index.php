@@ -384,12 +384,15 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                 $sanitized['owner'] = $existing['owner'] ?? '';
                 $sanitized['sharedWith'] = $existing['sharedWith'] ?? [];
                 $db['tables'][$idx] = $sanitized;
-                $tableChanges[] = ['type' => 'update_table', 'id' => $id, 'name' => (string)$sanitized['name']];
+                $oldName = (string)($existing['name'] ?? '');
+                $details = 'name: ' . $oldName . ' → ' . (string)$sanitized['name'] . '; columns: ' . count($sanitized['columns']) . '; rows: ' . count($sanitized['rows']);
+                $tableChanges[] = ['type' => 'update_table', 'id' => $id, 'name' => (string)$sanitized['name'], 'details' => $details];
             } else {
                 $sanitized['owner'] = $username;
                 $sanitized['sharedWith'] = [];
                 $db['tables'][] = $sanitized;
-                $tableChanges[] = ['type' => 'create_table', 'id' => $id, 'name' => (string)$sanitized['name']];
+                $details = 'columns: ' . count($sanitized['columns']) . '; rows: ' . count($sanitized['rows']);
+                $tableChanges[] = ['type' => 'create_table', 'id' => $id, 'name' => (string)$sanitized['name'], 'details' => $details];
             }
         }
 
@@ -400,7 +403,8 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             if (($t['owner'] ?? '') !== $username) return true;
             $keep = isset($incomingIds[$id]);
             if (!$keep) {
-                $tableChanges[] = ['type' => 'delete_table', 'id' => (string)$id, 'name' => (string)($t['name'] ?? 'Table')];
+                $details = 'deleted table with ' . count((array)($t['columns'] ?? [])) . ' columns and ' . count((array)($t['rows'] ?? [])) . ' rows';
+                $tableChanges[] = ['type' => 'delete_table', 'id' => (string)$id, 'name' => (string)($t['name'] ?? 'Table'), 'details' => $details];
             }
             return $keep;
         }));
@@ -424,7 +428,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
 
         $db['relations'] = computeRelations($db['tables']);
         foreach ($tableChanges as $ch) {
-            appendActivity($db, $username, (string)$ch['id'], (string)$ch['name'], (string)$ch['type']);
+            appendActivity($db, $username, (string)$ch['id'], (string)$ch['name'], (string)$ch['type'], (string)($ch['details'] ?? ''));
         }
         $db['updated_at'] = date('c');
         jsonWrite($dbFile, $db);
@@ -536,6 +540,17 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                 <span class="muted" id="currentUserLabel"></span>
                 <button class="ghost" id="themeToggleBtn" type="button" aria-label="Switch to dark mode">🌙 Dark mode</button>
                 <a class="ghost" href="../../index.php">Home</a><button class="ghost" id="logoutBtn" type="button">Log out</button>
+                <button class="ghost" id="activityBellBtn" type="button">🔔 Activities <span id="activityUnreadBadge" class="badge-dot" hidden>0</span></button>
+                <div class="activity-dropdown" id="activityDropdown" hidden>
+                    <div class="section-head"><h3 style="margin:0;">Database activities</h3><button class="ghost" id="closeActivityDropdownBtn" type="button">Close</button></div>
+                    <div class="inline-actions">
+                        <select id="activityTableFilter"><option value="">All tables</option></select>
+                        <input id="activityUserFilter" type="search" placeholder="User">
+                        <select id="activityTypeFilter"><option value="">All</option><option value="create_table">Create</option><option value="update_table">Edit</option><option value="delete_table">Delete</option><option value="share_update">Share</option><option value="edit_row">Row edit</option><option value="create_row">Row create</option><option value="delete_row">Row delete</option><option value="edit_column">Column edit</option><option value="create_column">Column create</option><option value="delete_column">Column delete</option></select>
+                        <input id="activityDateFilter" type="date">
+                    </div>
+                    <ul id="activityList" class="list"></ul>
+                </div>
                 <div class="badge" id="saveState">Ready</div>
             </div>
         </header>
@@ -568,18 +583,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             </div>
         </section>
 
-        <section class="card" id="activityView">
-            <div class="section-head">
-                <h2>Database activities</h2>
-                <div class="inline-actions">
-                    <select id="activityTableFilter"><option value="">All tables</option></select>
-                    <input id="activityUserFilter" type="search" placeholder="Filter by user">
-                    <select id="activityTypeFilter"><option value="">All activities</option><option value="create_table">Create</option><option value="update_table">Edit</option><option value="delete_table">Delete</option><option value="share_update">Share update</option><option value="edit_row">Row edit</option><option value="create_row">Row create</option><option value="delete_row">Row delete</option><option value="edit_column">Column edit</option><option value="create_column">Column create</option><option value="delete_column">Column delete</option></select>
-                    <input id="activityDateFilter" type="date">
-                </div>
-            </div>
-            <ul id="activityList" class="list"></ul>
-        </section>
+        
 
         <section class="card" id="tableView" hidden>
             <div class="section-head table-toolbar">
