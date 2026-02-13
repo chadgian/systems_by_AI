@@ -126,7 +126,10 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             <h1 id="pageTitle">Your tables</h1>
             <p id="pageSubtitle" class="muted">Start by creating or selecting a table.</p>
         </div>
-        <div class="badge" id="saveState">Ready</div>
+        <div class="hero-actions">
+            <button class="ghost" id="themeToggleBtn" type="button" aria-label="Switch to dark mode">🌙 Dark mode</button>
+            <div class="badge" id="saveState">Ready</div>
+        </div>
     </header>
 
     <section class="card" id="homeView">

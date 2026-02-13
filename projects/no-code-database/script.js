@@ -43,6 +43,7 @@ const mergeModal = document.getElementById('mergeModal');
 const mergeForm = document.getElementById('mergeForm');
 const mergeRelationSelect = document.getElementById('mergeRelationSelect');
 const mergeColumnChoices = document.getElementById('mergeColumnChoices');
+const themeToggleBtn = document.getElementById('themeToggleBtn');
 
 const openCreateTableModalBtn = document.getElementById('openCreateTableModalBtn');
 const backToHomeBtn = document.getElementById('backToHomeBtn');
@@ -82,6 +83,23 @@ function syncRoute(push = false) {
 
 function formatTimestamp() {
     return new Date().toLocaleString();
+}
+
+
+function applyTheme(theme) {
+    const nextTheme = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = nextTheme;
+    if (themeToggleBtn) {
+        const dark = nextTheme === 'dark';
+        themeToggleBtn.textContent = dark ? '☀️ Light mode' : '🌙 Dark mode';
+        themeToggleBtn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+    }
+}
+
+function initTheme() {
+    const savedTheme = window.localStorage.getItem('ncdb-theme');
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    applyTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
 }
 
 function getDisplayValue(table, col, raw) {
@@ -382,6 +400,14 @@ backToHomeBtn.addEventListener('click', () => {
 openAddColumnModalBtn.addEventListener('click', () => openColumnModal());
 openAddRowModalBtn.addEventListener('click', () => openRowModal());
 openMergeModalBtn.addEventListener('click', openMergeModal);
+if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', () => {
+        const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+        const next = current === 'dark' ? 'light' : 'dark';
+        applyTheme(next);
+        window.localStorage.setItem('ncdb-theme', next);
+    });
+}
 
 columnTypeInput.addEventListener('change', () => {
     dropdownOptionsInput.hidden = columnTypeInput.value !== 'dropdown';
@@ -637,4 +663,5 @@ window.addEventListener('popstate', () => {
     render();
 });
 
+initTheme();
 loadWorkspace();
