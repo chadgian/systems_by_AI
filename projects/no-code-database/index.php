@@ -46,11 +46,12 @@ function buildSampleWorkspace(): array {
                     ['id' => 'col_priority', 'name' => 'Priority', 'type' => 'dropdown', 'options' => ['Low', 'Medium', 'High']],
                     ['id' => 'col_completed', 'name' => 'Completed', 'type' => 'yesno'],
                     ['id' => 'col_customer_link', 'name' => 'Customer', 'type' => 'relation', 'relation' => ['tableId' => 'tbl_customers', 'columnId' => 'col_customer_name']],
+                    ['id' => 'col_remarks', 'name' => 'Remarks', 'type' => 'remarks'],
                 ],
                 'rows' => [
-                    ['id' => 'row_task_1', 'values' => ['col_task_title' => 'Quarterly review call', 'col_due_date' => '2026-03-01', 'col_effort' => '2', 'col_priority' => 'Medium', 'col_completed' => 'No', 'col_customer_link' => 'row_customer_1']],
-                    ['id' => 'row_task_2', 'values' => ['col_task_title' => 'Billing migration follow-up', 'col_due_date' => '2026-02-20', 'col_effort' => '4', 'col_priority' => 'High', 'col_completed' => 'No', 'col_customer_link' => 'row_customer_2']],
-                    ['id' => 'row_task_3', 'values' => ['col_task_title' => 'Onboarding checklist closeout', 'col_due_date' => '2026-02-15', 'col_effort' => '1', 'col_priority' => 'Low', 'col_completed' => 'Yes', 'col_customer_link' => 'row_customer_3']],
+                    ['id' => 'row_task_1', 'values' => ['col_task_title' => 'Quarterly review call', 'col_due_date' => '2026-03-01', 'col_effort' => '2', 'col_priority' => 'Medium', 'col_completed' => 'No', 'col_customer_link' => 'row_customer_1', 'col_remarks' => '[2026-02-10 09:00] Kickoff complete']],
+                    ['id' => 'row_task_2', 'values' => ['col_task_title' => 'Billing migration follow-up', 'col_due_date' => '2026-02-20', 'col_effort' => '4', 'col_priority' => 'High', 'col_completed' => 'No', 'col_customer_link' => 'row_customer_2', 'col_remarks' => '[2026-02-11 14:15] Waiting on billing owner']],
+                    ['id' => 'row_task_3', 'values' => ['col_task_title' => 'Onboarding checklist closeout', 'col_due_date' => '2026-02-15', 'col_effort' => '1', 'col_priority' => 'Low', 'col_completed' => 'Yes', 'col_customer_link' => 'row_customer_3', 'col_remarks' => '[2026-02-09 11:45] Customer confirmed migration']],
                 ],
             ],
         ],
@@ -183,6 +184,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             <option value="yesno">Yes / No</option>
             <option value="dropdown">Dropdown</option>
             <option value="relation">Relation</option>
+            <option value="remarks">Remarks (timestamped append)</option>
         </select>
         <input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden>
         <div id="relationConfig" class="row" hidden>

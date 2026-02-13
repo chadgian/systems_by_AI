@@ -80,8 +80,18 @@ function syncRoute(push = false) {
     else window.history.replaceState({}, '', url);
 }
 
+function formatTimestamp() {
+    return new Date().toLocaleString();
+}
+
 function getDisplayValue(table, col, raw) {
+    if (col.type === 'remarks') {
+        const notes = String(raw || '').split('\n').filter(Boolean);
+        return notes.length ? notes[notes.length - 1] : '';
+    }
+
     if (col.type !== 'relation') return String(raw ?? '');
+
     const targetTable = tableById(col.relation?.tableId);
     const targetColumn = targetTable?.columns?.find((c) => c.id === col.relation?.columnId);
     const targetRow = (targetTable?.rows || []).find((r) => r.id === raw);
@@ -130,6 +140,8 @@ function renderColumns(table) {
                 <small class="muted">${escapeHtml(info)}</small>
             </div>
             <div class="inline-actions">
+                <button class="ghost" data-move-column-up="${col.id}">↑</button>
+                <button class="ghost" data-move-column-down="${col.id}">↓</button>
                 <button class="ghost" data-edit-column="${col.id}">Edit</button>
                 <button class="danger" data-delete-column="${col.id}">Delete</button>
             </div>
@@ -146,6 +158,26 @@ function mergedColumnsForTable(table) {
     return targetCols.map((c) => ({ ...c, __merged: true, __label: `${relCol.name} → ${c.name}` }));
 }
 
+function renderInlineCell(table, row, col) {
+    const raw = row.values?.[col.id] ?? '';
+
+    if (col.type === 'dropdown') {
+        const options = (col.options || []).map((opt) => `<option value="${escapeHtml(opt)}" ${String(raw) === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('');
+        return `<select class="inline-dropdown" data-inline-dropdown-row="${row.id}" data-inline-dropdown-col="${col.id}">${options}</select>`;
+    }
+
+    if (col.type === 'remarks') {
+        const notes = String(raw || '').split('\n').filter(Boolean);
+        const latest = notes.length ? notes[notes.length - 1] : '';
+        return `<div class="remarks-cell">
+            <small>${escapeHtml(latest || 'No remarks yet')}</small>
+            <button class="ghost" data-append-remark-row="${row.id}" data-append-remark-col="${col.id}">Add remark</button>
+        </div>`;
+    }
+
+    return escapeHtml(getDisplayValue(table, col, raw));
+}
+
 function renderRows(table) {
     const mergedCols = mergedColumnsForTable(table);
     const cols = [...table.columns, ...mergedCols];
@@ -160,10 +192,13 @@ function renderRows(table) {
                     const linkedRow = (targetTable?.rows || []).find((r) => r.id === row.values?.[relCol?.id]);
                     return `<td>${escapeHtml(String(linkedRow?.values?.[col.id] ?? ''))}</td>`;
                 }
-                return `<td>${escapeHtml(getDisplayValue(table, col, row.values?.[col.id]))}</td>`;
+
+                return `<td>${renderInlineCell(table, row, col)}</td>`;
             }).join('');
 
-            return `<tr>${cells}<td>
+            return `<tr>${cells}<td class="inline-actions">
+                <button class="ghost" data-move-row-up="${row.id}">↑</button>
+                <button class="ghost" data-move-row-down="${row.id}">↓</button>
                 <button class="ghost" data-edit-row="${row.id}">Edit</button>
                 <button class="danger" data-delete-row="${row.id}">Delete</button>
             </td></tr>`;
@@ -194,7 +229,7 @@ function render() {
 
     pageTitle.textContent = isTablePage ? activeTable()?.name || 'Table' : 'Your tables';
     pageSubtitle.textContent = isTablePage
-        ? 'Manage columns here, then add/edit rows via modal.'
+        ? 'Manage columns here, then add/edit rows via modal. Dropdown + remarks can be updated inline.'
         : 'Start by creating or selecting a table.';
 
     renderHome();
@@ -277,13 +312,16 @@ function openRowModal(editId = null) {
 
     rowFields.innerHTML = table.columns.map((col) => {
         const value = existingRow?.values?.[col.id] ?? '';
+
         if (col.type === 'dropdown') {
             const opts = (col.options || []).map((opt) => `<option value="${escapeHtml(opt)}" ${String(value) === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('');
             return `<label>${escapeHtml(col.name)}<select name="${col.id}">${opts}</select></label>`;
         }
+
         if (col.type === 'yesno') {
             return `<label>${escapeHtml(col.name)}<select name="${col.id}"><option value="Yes" ${value === 'Yes' ? 'selected' : ''}>Yes</option><option value="No" ${value === 'No' ? 'selected' : ''}>No</option></select></label>`;
         }
+
         if (col.type === 'relation') {
             const targetTable = tableById(col.relation?.tableId);
             const targetCol = targetTable?.columns?.find((c) => c.id === col.relation?.columnId);
@@ -292,6 +330,10 @@ function openRowModal(editId = null) {
                 return `<option value="${row.id}" ${value === row.id ? 'selected' : ''}>${escapeHtml(String(lbl ?? '(empty)'))}</option>`;
             }).join('');
             return `<label>${escapeHtml(col.name)}<select name="${col.id}"><option value="">Select linked row</option>${opts}</select></label>`;
+        }
+
+        if (col.type === 'remarks') {
+            return `<label>${escapeHtml(col.name)}<textarea name="${col.id}" rows="4" placeholder="Optional: you can also add remarks inline from table view.">${escapeHtml(String(value))}</textarea></label>`;
         }
 
         const inputType = col.type === 'number' ? 'number' : (col.type === 'date' ? 'date' : 'text');
@@ -473,6 +515,28 @@ columnList.addEventListener('click', async (event) => {
     const table = activeTable();
     if (!table) return;
 
+    const upBtn = event.target.closest('[data-move-column-up]');
+    if (upBtn) {
+        const idx = table.columns.findIndex((c) => c.id === upBtn.dataset.moveColumnUp);
+        if (idx > 0) {
+            [table.columns[idx - 1], table.columns[idx]] = [table.columns[idx], table.columns[idx - 1]];
+            render();
+            await persist();
+        }
+        return;
+    }
+
+    const downBtn = event.target.closest('[data-move-column-down]');
+    if (downBtn) {
+        const idx = table.columns.findIndex((c) => c.id === downBtn.dataset.moveColumnDown);
+        if (idx >= 0 && idx < table.columns.length - 1) {
+            [table.columns[idx + 1], table.columns[idx]] = [table.columns[idx], table.columns[idx + 1]];
+            render();
+            await persist();
+        }
+        return;
+    }
+
     const editBtn = event.target.closest('[data-edit-column]');
     if (editBtn) {
         openColumnModal(editBtn.dataset.editColumn);
@@ -496,9 +560,60 @@ columnList.addEventListener('click', async (event) => {
     await persist();
 });
 
+dataTable.addEventListener('change', async (event) => {
+    const table = activeTable();
+    if (!table) return;
+
+    const dropdown = event.target.closest('[data-inline-dropdown-row]');
+    if (!dropdown) return;
+
+    const row = table.rows.find((r) => r.id === dropdown.dataset.inlineDropdownRow);
+    if (!row) return;
+
+    row.values[dropdown.dataset.inlineDropdownCol] = dropdown.value;
+    await persist();
+});
+
 dataTable.addEventListener('click', async (event) => {
     const table = activeTable();
     if (!table) return;
+
+    const remarkBtn = event.target.closest('[data-append-remark-row]');
+    if (remarkBtn) {
+        const row = table.rows.find((r) => r.id === remarkBtn.dataset.appendRemarkRow);
+        if (!row) return;
+        const colId = remarkBtn.dataset.appendRemarkCol;
+        const text = window.prompt('Add remark:');
+        if (!text || !text.trim()) return;
+        const previous = String(row.values[colId] || '');
+        const appended = `[${formatTimestamp()}] ${text.trim()}`;
+        row.values[colId] = previous ? `${previous}\n${appended}` : appended;
+        render();
+        await persist();
+        return;
+    }
+
+    const upBtn = event.target.closest('[data-move-row-up]');
+    if (upBtn) {
+        const idx = table.rows.findIndex((r) => r.id === upBtn.dataset.moveRowUp);
+        if (idx > 0) {
+            [table.rows[idx - 1], table.rows[idx]] = [table.rows[idx], table.rows[idx - 1]];
+            render();
+            await persist();
+        }
+        return;
+    }
+
+    const downBtn = event.target.closest('[data-move-row-down]');
+    if (downBtn) {
+        const idx = table.rows.findIndex((r) => r.id === downBtn.dataset.moveRowDown);
+        if (idx >= 0 && idx < table.rows.length - 1) {
+            [table.rows[idx + 1], table.rows[idx]] = [table.rows[idx], table.rows[idx + 1]];
+            render();
+            await persist();
+        }
+        return;
+    }
 
     const editBtn = event.target.closest('[data-edit-row]');
     if (editBtn) {

@@ -41,7 +41,13 @@ button:hover { filter: brightness(0.96); }
 .merge-columns { display: grid; gap: .35rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .chip-option { border: 1px solid #dbe3f5; border-radius: 8px; padding: .35rem .45rem; background: #fbfcff; display: flex; gap: .5rem; align-items: start; }
 
-input:focus-visible, select:focus-visible, button:focus-visible { outline: 3px solid #95adff; outline-offset: 1px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px solid #95adff; outline-offset: 1px; }
+
+.inline-dropdown { min-width: 130px; }
+.remarks-cell { display: grid; gap: .35rem; min-width: 200px; }
+.remarks-cell small { color: #44557d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
+textarea { border: 1px solid #d2dcf2; border-radius: 9px; padding: .55rem .62rem; font: inherit; width: 100%; }
+
 
 @media (max-width: 900px) {
     .hero, .section-head, .list li { flex-direction: column; align-items: flex-start; }
