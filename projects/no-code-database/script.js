@@ -1,3 +1,5 @@
+const ACTIVITY_POLL_MS = 5000;
+
 const state = {
     tables: [],
     relations: [],
@@ -295,8 +297,16 @@ function getDisplayValue(table, col, raw) {
 
 function activityReadKey() { return `ncdb-activity-read-${state.currentUser || 'anon'}`; }
 
+function latestActivityTimestamp() {
+    return (state.activities || []).reduce((max, a) => {
+        const ts = String(a?.timestamp || '');
+        return ts > max ? ts : max;
+    }, '');
+}
+
 function markActivitiesRead() {
-    window.localStorage.setItem(activityReadKey(), new Date().toISOString());
+    const latest = latestActivityTimestamp();
+    window.localStorage.setItem(activityReadKey(), latest || new Date().toISOString());
     updateUnreadBadge();
 }
 
@@ -330,6 +340,7 @@ function renderActivities() {
 
     if (!items.length) {
         activityList.innerHTML = '<li>No activities match your filters.</li>';
+        updateUnreadBadge();
         return;
     }
     activityList.innerHTML = items.map((a) => {
@@ -554,6 +565,22 @@ async function loadWorkspace() {
     }
 
     render();
+}
+
+
+async function refreshActivitiesSilently() {
+    try {
+        const response = await fetch('index.php?api=1', { headers: { 'Accept': 'application/json' } });
+        if (!response.ok) return;
+        const data = await response.json();
+        state.activities = Array.isArray(data.activities) ? data.activities : state.activities;
+        if (Array.isArray(data.tables)) {
+            const nameById = new Map(data.tables.map((t) => [t.id, t.name]));
+            state.tables = state.tables.map((t) => nameById.has(t.id) ? { ...t, name: nameById.get(t.id) } : t);
+        }
+        if (activityDropdown && !activityDropdown.hidden) renderActivities();
+        else updateUnreadBadge();
+    } catch {}
 }
 
 function showAuth(message = '') {
@@ -1081,4 +1108,8 @@ window.addEventListener('popstate', () => {
 });
 
 initTheme();
-if (appRoot) { checkSession().then(loadUsersForSharing); }
+if (appRoot) {
+    checkSession().then(loadUsersForSharing).then(() => {
+        setInterval(refreshActivitiesSilently, ACTIVITY_POLL_MS);
+    });
+}
