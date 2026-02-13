@@ -118,89 +118,108 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<a class="skip-link" href="#mainBuilder">Skip to data builder</a>
-<main class="layout" id="mainBuilder">
+<main class="layout" id="appRoot">
     <header class="hero card">
         <div>
             <p class="eyebrow">NO-CODE DATA BUILDER</p>
-            <h1>Build your own app data without coding</h1>
-            <p>
-                Create data groups, add fields, choose field types, add records, and connect groups together.
-                Everything is saved into a JSON file for easy backup.
-                The app starts with sample data preloaded so you can explore every field type immediately.
-            </p>
+            <h1 id="pageTitle">Your tables</h1>
+            <p id="pageSubtitle" class="muted">Start by creating or selecting a table.</p>
         </div>
         <div class="badge" id="saveState">Ready</div>
     </header>
 
-    <section class="grid split-top">
-        <section class="card">
-            <h2>1) Create data group</h2>
-            <div class="row">
-                <input id="tableNameInput" type="text" placeholder="Example: Customers">
-                <button id="addTableBtn">Add group</button>
+    <section class="card" id="homeView">
+        <div class="section-head">
+            <h2>Tables</h2>
+            <button id="openCreateTableModalBtn">Create table</button>
+        </div>
+        <ul id="tableList" class="list"></ul>
+    </section>
+
+    <section class="card" id="tableView" hidden>
+        <div class="section-head">
+            <h2 id="activeTableTitle">Table</h2>
+            <div class="inline-actions">
+                <button class="ghost" id="backToHomeBtn">Back to tables</button>
+                <button id="openMergeModalBtn">Merge related table</button>
+                <button id="openAddRowModalBtn">Add row</button>
             </div>
-            <p class="muted">Use this section only for creating a new group.</p>
-        </section>
-
-        <aside class="card">
-            <h2>2) Select and manage group</h2>
-            <ul id="tableList" class="list"></ul>
-        </aside>
-    </section>
-
-    <section class="card">
-        <h2>3) Fields & records</h2>
-        <p id="selectedTableLabel" class="muted">Pick a data group to start.</p>
-
-        <div class="row wrap-row">
-            <input id="columnNameInput" type="text" placeholder="Field name (Example: Email)">
-            <select id="columnTypeInput">
-                <option value="text">Text</option>
-                <option value="number">Number</option>
-                <option value="date">Date</option>
-                <option value="yesno">Yes / No</option>
-                <option value="dropdown">Dropdown list</option>
-                <option value="relation">Linked record (relation)</option>
-            </select>
-            <button id="addColumnBtn">Add field</button>
         </div>
 
-        <div class="row" id="dropdownOptionsRow" style="display:none;">
-            <input id="dropdownOptionsInput" type="text" placeholder="Dropdown choices (comma-separated, example: New, Processing, Done)">
+        <div class="panel-block">
+            <div class="section-head">
+                <h3>Columns</h3>
+                <button class="ghost" id="openAddColumnModalBtn">Add column</button>
+            </div>
+            <ul id="columnList" class="list"></ul>
         </div>
 
-        <div class="row wrap-row" id="relationOptionsRow" style="display:none;">
-            <select id="relationTableInput"></select>
-            <select id="relationColumnInput"></select>
-        </div>
-
-        <h3>Fields</h3>
-        <ul id="columnList" class="list"></ul>
-
-        <h3>Add a record</h3>
-        <form id="rowForm" class="row-form"></form>
-
-        <h3>Saved records</h3>
-        <div class="table-wrap">
-            <table id="dataTable"></table>
-        </div>
-    </section>
-
-    <section class="card">
-        <h2>4) Combined view (with linked data)</h2>
-        <p class="muted">Choose which columns you want to see, then click “Show merged data”. Column names are simplified for easier reading.</p>
-        <div class="row wrap-row">
-            <select id="mergeBaseTable"></select>
-            <button id="refreshMergeColumnsBtn" class="ghost">Refresh columns</button>
-            <button id="renderMergeBtn">Show merged data</button>
-        </div>
-        <div id="mergeColumns" class="merge-columns"></div>
-        <div class="table-wrap">
-            <table id="mergeTable"></table>
+        <div class="panel-block">
+            <h3>Rows</h3>
+            <div class="table-wrap"><table id="dataTable"></table></div>
         </div>
     </section>
 </main>
+
+<dialog id="tableModal" class="modal">
+    <form method="dialog" id="tableForm" class="modal-form">
+        <h3 id="tableModalTitle">Create table</h3>
+        <input id="tableNameInput" type="text" placeholder="Example: Customers" required>
+        <menu>
+            <button value="cancel" class="ghost">Cancel</button>
+            <button id="saveTableBtn" value="default">Save</button>
+        </menu>
+    </form>
+</dialog>
+
+<dialog id="columnModal" class="modal">
+    <form method="dialog" id="columnForm" class="modal-form">
+        <h3 id="columnModalTitle">Add column</h3>
+        <input id="columnNameInput" type="text" placeholder="Column name" required>
+        <select id="columnTypeInput">
+            <option value="text">Text</option>
+            <option value="number">Number</option>
+            <option value="date">Date</option>
+            <option value="yesno">Yes / No</option>
+            <option value="dropdown">Dropdown</option>
+            <option value="relation">Relation</option>
+        </select>
+        <input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden>
+        <div id="relationConfig" class="row" hidden>
+            <select id="relationTableInput"></select>
+            <select id="relationColumnInput"></select>
+        </div>
+        <menu>
+            <button value="cancel" class="ghost">Cancel</button>
+            <button id="saveColumnBtn" value="default">Save</button>
+        </menu>
+    </form>
+</dialog>
+
+<dialog id="rowModal" class="modal">
+    <form method="dialog" id="rowForm" class="modal-form">
+        <h3 id="rowModalTitle">Add row</h3>
+        <div id="rowFields"></div>
+        <menu>
+            <button value="cancel" class="ghost">Cancel</button>
+            <button id="saveRowBtn" value="default">Save</button>
+        </menu>
+    </form>
+</dialog>
+
+<dialog id="mergeModal" class="modal">
+    <form method="dialog" id="mergeForm" class="modal-form">
+        <h3>Merge related table</h3>
+        <p class="muted">Choose a relation column from this table, then choose columns from the linked table.</p>
+        <select id="mergeRelationSelect"></select>
+        <div id="mergeColumnChoices" class="merge-columns"></div>
+        <menu>
+            <button value="cancel" class="ghost">Cancel</button>
+            <button id="applyMergeBtn" value="default">Apply merge</button>
+        </menu>
+    </form>
+</dialog>
+
 <script src="script.js"></script>
 </body>
 </html>
