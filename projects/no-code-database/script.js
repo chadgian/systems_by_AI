@@ -40,6 +40,7 @@ const tableNameInput = document.getElementById('tableNameInput');
 const tableTagChoices = document.getElementById('tableTagChoices');
 
 const columnModal = document.getElementById('columnModal');
+const columnsPanelModal = document.getElementById('columnsPanelModal');
 const columnForm = document.getElementById('columnForm');
 const columnModalTitle = document.getElementById('columnModalTitle');
 const columnNameInput = document.getElementById('columnNameInput');
@@ -68,6 +69,7 @@ const themeToggleBtn = document.getElementById('themeToggleBtn');
 const openCreateTableModalBtn = document.getElementById('openCreateTableModalBtn');
 const backToHomeBtn = document.getElementById('backToHomeBtn');
 const openAddColumnModalBtn = document.getElementById('openAddColumnModalBtn');
+const openColumnsModalBtn = document.getElementById('openColumnsModalBtn');
 const openAddRowModalBtn = document.getElementById('openAddRowModalBtn');
 const openMergeModalBtn = document.getElementById('openMergeModalBtn');
 const openShareModalBtn = document.getElementById('openShareModalBtn');
@@ -288,7 +290,8 @@ function renderTablePage() {
     activeTableTitle.textContent = table.name;
     openShareModalBtn.hidden = !isOwnerTable(table);
     openAddRowModalBtn.disabled = !canEditTable(table);
-    openAddColumnModalBtn.disabled = !canEditTable(table);
+    if (openAddColumnModalBtn) openAddColumnModalBtn.disabled = !canEditTable(table);
+    if (openColumnsModalBtn) openColumnsModalBtn.disabled = false;
     openMergeModalBtn.disabled = !canEditTable(table);
 
     renderColumns(table);
@@ -508,6 +511,12 @@ if (themeToggleBtn) themeToggleBtn.addEventListener('click', () => {
 if (openCreateTableModalBtn) openCreateTableModalBtn.addEventListener('click', () => openTableModal());
 if (backToHomeBtn) backToHomeBtn.addEventListener('click', () => { state.activeTableId = null; state.mergeConfig = null; syncRoute(true); render(); });
 if (openAddColumnModalBtn) openAddColumnModalBtn.addEventListener('click', () => openColumnModal());
+if (openColumnsModalBtn) openColumnsModalBtn.addEventListener('click', () => {
+    const table = activeTable();
+    if (!table) return;
+    renderColumns(table);
+    columnsPanelModal?.showModal();
+});
 if (openAddRowModalBtn) openAddRowModalBtn.addEventListener('click', () => openRowModal());
 if (openMergeModalBtn) openMergeModalBtn.addEventListener('click', openMergeModal);
 if (openShareModalBtn) openShareModalBtn.addEventListener('click', openShareModal);

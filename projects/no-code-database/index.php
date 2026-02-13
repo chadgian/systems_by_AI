@@ -552,17 +552,10 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                 <div class="inline-actions">
                     <button class="ghost" id="backToHomeBtn">Back to tables</button>
                     <button class="ghost" id="openShareModalBtn">Share</button>
+                    <button class="ghost" id="openColumnsModalBtn">Columns</button>
                     <button id="openMergeModalBtn">Merge related table</button>
                     <button id="openAddRowModalBtn">Add row</button>
                 </div>
-            </div>
-
-            <div class="panel-block">
-                <div class="section-head">
-                    <h3>Columns</h3>
-                    <button class="ghost" id="openAddColumnModalBtn">Add column</button>
-                </div>
-                <ul id="columnList" class="list"></ul>
             </div>
 
             <div class="panel-block">
@@ -575,6 +568,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
 
     <dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><div id="tableTagChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="columnModal" class="modal"><form method="dialog" id="columnForm" class="modal-form"><h3 id="columnModalTitle">Add column</h3><input id="columnNameInput" type="text" placeholder="Column name" required><select id="columnTypeInput"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="yesno">Yes / No</option><option value="dropdown">Dropdown</option><option value="relation">Relation</option><option value="remarks">Remarks (timestamped append)</option></select><input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden><div id="relationConfig" class="row" hidden><select id="relationTableInput"></select><select id="relationColumnInput"></select></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveColumnBtn" value="default">Save</button></menu></form></dialog>
+    <dialog id="columnsPanelModal" class="modal"><form method="dialog" class="modal-form"><div class="section-head"><h3>Columns</h3><button class="ghost" id="openAddColumnModalBtn" type="button">Add column</button></div><ul id="columnList" class="list"></ul><menu><button value="cancel" class="ghost">Close</button></menu></form></dialog>
     <dialog id="rowModal" class="modal"><form method="dialog" id="rowForm" class="modal-form"><h3 id="rowModalTitle">Add row</h3><div id="rowFields"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveRowBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="mergeModal" class="modal"><form method="dialog" id="mergeForm" class="modal-form"><h3>Merge related table</h3><p class="muted">Choose a relation column from this table, then choose columns from the linked table.</p><select id="mergeRelationSelect"></select><div id="mergeColumnChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="applyMergeBtn" value="default">Apply merge</button></menu></form></dialog>
     <dialog id="shareModal" class="modal"><form method="dialog" id="shareForm" class="modal-form"><h3>Share table</h3><p class="muted">Choose users and permission level.</p><div id="shareUsersList" class="share-grid"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveShareBtn" value="default">Save sharing</button></menu></form></dialog>
