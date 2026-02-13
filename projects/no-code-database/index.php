@@ -180,6 +180,23 @@ $db = jsonRead($dbFile, ['tables' => [], 'relations' => [], 'userTags' => [], 'u
 $users = jsonRead($usersFile, ['users' => []]);
 if (!isset($users['users']) || !is_array($users['users'])) $users['users'] = [];
 if (!isset($db['userTags']) || !is_array($db['userTags'])) $db['userTags'] = [];
+if (!isset($db['activities']) || !is_array($db['activities'])) $db['activities'] = [];
+
+function appendActivity(array &$db, string $username, string $tableId, string $tableName, string $action, string $details = ''): void {
+    if (!isset($db['activities']) || !is_array($db['activities'])) $db['activities'] = [];
+    $db['activities'][] = [
+        'id' => 'act_' . bin2hex(random_bytes(5)),
+        'timestamp' => date('c'),
+        'user' => $username,
+        'tableId' => $tableId,
+        'tableName' => $tableName,
+        'action' => $action,
+        'details' => $details,
+    ];
+    if (count($db['activities']) > 3000) {
+        $db['activities'] = array_slice($db['activities'], -3000);
+    }
+}
 
 ensureDemoUsersAndData($users, $db, $usersFile, $dbFile);
 
@@ -273,6 +290,29 @@ if (isset($_GET['share']) && $_GET['share'] === '1') {
     }
 
     $db['tables'][$idx]['sharedWith'] = $sanitized;
+    appendActivity($db, $username, (string)$tableId, (string)($db['tables'][$idx]['name'] ?? 'Table'), 'share_update', 'Updated sharing permissions');
+    $db['updated_at'] = date('c');
+    jsonWrite($dbFile, $db);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+if (isset($_GET['activity']) && $_GET['activity'] === '1') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (!isset($_SESSION['user'])) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Unauthorized']); exit; }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); echo json_encode(['ok' => false, 'message' => 'Method not allowed']); exit; }
+    $payload = json_decode(file_get_contents('php://input') ?: '', true);
+    $username = $_SESSION['user'];
+    $tableId = trim((string)($payload['tableId'] ?? ''));
+    $action = trim((string)($payload['action'] ?? 'update'));
+    $details = trim((string)($payload['details'] ?? ''));
+    if ($tableId === '') { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'tableId required']); exit; }
+    $table = null;
+    foreach ($db['tables'] as $t) {
+        if (($t['id'] ?? '') === $tableId) { $table = $t; break; }
+    }
+    if ($table === null || !permissionFor($username, $table)) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'No access']); exit; }
+    appendActivity($db, $username, $tableId, (string)($table['name'] ?? 'Table'), $action, $details);
     $db['updated_at'] = date('c');
     jsonWrite($dbFile, $db);
     echo json_encode(['ok' => true]);
@@ -298,8 +338,13 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         }
 
         $relations = array_values(array_filter(computeRelations($db['tables']), fn($r) => isset($visibleIds[$r['fromTableId']], $visibleIds[$r['toTableId']])));
+        $allowedTableIds = array_column($visible, 'id');
+        $activities = array_values(array_filter($db['activities'], function ($a) use ($username, $allowedTableIds) {
+            $tableId = (string)($a['tableId'] ?? '');
+            return in_array($tableId, $allowedTableIds, true) || (($a['user'] ?? '') === $username);
+        }));
         jsonWrite($dbFile, $db);
-        echo json_encode(['tables' => $visible, 'relations' => $relations, 'tags' => array_values($db['userTags'][$username] ?? []), 'updated_at' => $db['updated_at'], 'currentUser' => $username]);
+        echo json_encode(['tables' => $visible, 'relations' => $relations, 'tags' => array_values($db['userTags'][$username] ?? []), 'activities' => $activities, 'updated_at' => $db['updated_at'], 'currentUser' => $username]);
         exit;
     }
 
@@ -316,6 +361,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         $existingById = [];
         foreach ($db['tables'] as $i => $t) $existingById[$t['id']] = $i;
 
+        $tableChanges = [];
         foreach ($incoming as $table) {
             if (!is_array($table)) continue;
             $id = (string)($table['id'] ?? '');
@@ -338,17 +384,25 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                 $sanitized['owner'] = $existing['owner'] ?? '';
                 $sanitized['sharedWith'] = $existing['sharedWith'] ?? [];
                 $db['tables'][$idx] = $sanitized;
+                $tableChanges[] = ['type' => 'update_table', 'id' => $id, 'name' => (string)$sanitized['name']];
             } else {
                 $sanitized['owner'] = $username;
                 $sanitized['sharedWith'] = [];
                 $db['tables'][] = $sanitized;
+                $tableChanges[] = ['type' => 'create_table', 'id' => $id, 'name' => (string)$sanitized['name']];
             }
         }
 
-        $db['tables'] = array_values(array_filter($db['tables'], function ($t) use ($username, $incomingIds) {
+        $ownedBefore = array_values(array_filter($db['tables'], fn($t) => ($t['owner'] ?? '') === $username));
+
+        $db['tables'] = array_values(array_filter($db['tables'], function ($t) use ($username, $incomingIds, &$tableChanges) {
             $id = $t['id'] ?? '';
             if (($t['owner'] ?? '') !== $username) return true;
-            return isset($incomingIds[$id]);
+            $keep = isset($incomingIds[$id]);
+            if (!$keep) {
+                $tableChanges[] = ['type' => 'delete_table', 'id' => (string)$id, 'name' => (string)($t['name'] ?? 'Table')];
+            }
+            return $keep;
         }));
 
         if (isset($payload['tags']) && is_array($payload['tags'])) {
@@ -369,6 +423,9 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         }
 
         $db['relations'] = computeRelations($db['tables']);
+        foreach ($tableChanges as $ch) {
+            appendActivity($db, $username, (string)$ch['id'], (string)$ch['name'], (string)$ch['type']);
+        }
         $db['updated_at'] = date('c');
         jsonWrite($dbFile, $db);
         echo json_encode(['ok' => true, 'updated_at' => $db['updated_at']]);
@@ -509,6 +566,19 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                     <ul id="tableListShared" class="list"></ul>
                 </section>
             </div>
+        </section>
+
+        <section class="card" id="activityView">
+            <div class="section-head">
+                <h2>Database activities</h2>
+                <div class="inline-actions">
+                    <select id="activityTableFilter"><option value="">All tables</option></select>
+                    <input id="activityUserFilter" type="search" placeholder="Filter by user">
+                    <select id="activityTypeFilter"><option value="">All activities</option><option value="create_table">Create</option><option value="update_table">Edit</option><option value="delete_table">Delete</option><option value="share_update">Share update</option><option value="edit_row">Row edit</option><option value="create_row">Row create</option><option value="delete_row">Row delete</option><option value="edit_column">Column edit</option><option value="create_column">Column create</option><option value="delete_column">Column delete</option></select>
+                    <input id="activityDateFilter" type="date">
+                </div>
+            </div>
+            <ul id="activityList" class="list"></ul>
         </section>
 
         <section class="card" id="tableView" hidden>

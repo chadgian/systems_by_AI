@@ -9,6 +9,7 @@ const state = {
     currentUser: null,
     userDirectory: [],
     tags: [],
+    activities: [],
     editingTagId: null,
     tableSort: { columnId: null, direction: "asc" },
 };
@@ -24,6 +25,11 @@ const currentUserLabel = document.getElementById('currentUserLabel');
 const saveStateBadge = document.getElementById('saveState');
 const pageTitle = document.getElementById('pageTitle');
 const pageSubtitle = document.getElementById('pageSubtitle');
+const activityList = document.getElementById('activityList');
+const activityTableFilter = document.getElementById('activityTableFilter');
+const activityUserFilter = document.getElementById('activityUserFilter');
+const activityTypeFilter = document.getElementById('activityTypeFilter');
+const activityDateFilter = document.getElementById('activityDateFilter');
 
 const homeView = document.getElementById('homeView');
 const tableView = document.getElementById('tableView');
@@ -283,6 +289,52 @@ function getDisplayValue(table, col, raw) {
     return String(targetRow?.values?.[targetColumn?.id] ?? '');
 }
 
+async function logActivity(tableId, action, details = '') {
+    try {
+        await fetch('index.php?activity=1', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tableId, action, details }),
+        });
+    } catch {}
+}
+
+function renderActivities() {
+    if (!activityList) return;
+    const tableFilter = String(activityTableFilter?.value || '');
+    const userFilter = String(activityUserFilter?.value || '').toLowerCase().trim();
+    const typeFilter = String(activityTypeFilter?.value || '');
+    const dateFilter = String(activityDateFilter?.value || '');
+
+    const tableOptions = [...new Map(state.tables.map(t => [t.id, t.name])).entries()];
+    if (activityTableFilter) {
+        const cur = activityTableFilter.value;
+        activityTableFilter.innerHTML = '<option value="">All tables</option>' + tableOptions.map(([id,name]) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`).join('');
+        activityTableFilter.value = tableOptions.some(([id]) => id === cur) ? cur : '';
+    }
+
+    const items = [...state.activities]
+        .filter((a) => !tableFilter || a.tableId === tableFilter)
+        .filter((a) => !userFilter || String(a.user || '').toLowerCase().includes(userFilter))
+        .filter((a) => !typeFilter || String(a.action || '') === typeFilter)
+        .filter((a) => !dateFilter || String(a.timestamp || '').slice(0,10) === dateFilter)
+        .sort((a,b) => String(b.timestamp||'').localeCompare(String(a.timestamp||'')));
+
+    if (!items.length) {
+        activityList.innerHTML = '<li>No activities match your filters.</li>';
+        return;
+    }
+    activityList.innerHTML = items.map((a) => `
+        <li>
+            <div>
+                <strong>${escapeHtml(a.tableName || 'Table')}</strong>
+                <small class="muted">${escapeHtml(a.user || '')} • ${escapeHtml(a.action || 'update')} • ${escapeHtml(new Date(a.timestamp || Date.now()).toLocaleString())}</small>
+                ${a.details ? `<div class="muted">${escapeHtml(a.details)}</div>` : ''}
+            </div>
+        </li>
+    `).join('');
+}
+
 function renderTagFilter() {
     if (!tagFilterSelect) return;
     const current = tagFilterSelect.value;
@@ -458,6 +510,7 @@ function render() {
     pageSubtitle.textContent = isTablePage ? 'Tables are private by default. Owners can share with view/edit permission.' : 'Start by creating or selecting a table.';
 
     renderHome();
+    renderActivities();
     if (isTablePage) renderTablePage();
 }
 
@@ -477,6 +530,7 @@ async function loadWorkspace() {
     state.tables = Array.isArray(data.tables) ? data.tables : [];
     state.relations = Array.isArray(data.relations) ? data.relations : [];
     state.tags = Array.isArray(data.tags) ? data.tags : [];
+    state.activities = Array.isArray(data.activities) ? data.activities : [];
     state.currentUser = data.currentUser || state.currentUser;
     currentUserLabel.textContent = state.currentUser ? `@${state.currentUser}` : '';
 
@@ -718,12 +772,18 @@ if (tableForm) tableForm.addEventListener('submit', async (event) => {
     const tagIds = tableTagChoices ? Array.from(tableTagChoices.querySelectorAll('input:checked')).map((el) => el.value) : [];
     if (!name) return;
 
+    let changedTableId = '';
     if (state.editingTableId) {
         const table = tableById(state.editingTableId);
-        if (table && isOwnerTable(table)) { table.name = name; table.tagIds = tagIds; }
-    } else state.tables.push({ id: uid('tbl'), name, tagIds, columns: [], rows: [], _permission: 'owner', _owner: state.currentUser, _sharedWith: {} });
+        if (table && isOwnerTable(table)) { table.name = name; table.tagIds = tagIds; changedTableId = table.id; }
+    } else {
+        const newId = uid('tbl');
+        state.tables.push({ id: newId, name, tagIds, columns: [], rows: [], _permission: 'owner', _owner: state.currentUser, _sharedWith: {} });
+        changedTableId = newId;
+    }
 
     tableModal.close(); render(); await persist();
+    if (changedTableId) await logActivity(changedTableId, state.editingTableId ? 'update_table' : 'create_table');
 });
 
 if (columnForm) columnForm.addEventListener('submit', async (event) => {
@@ -751,6 +811,7 @@ if (columnForm) columnForm.addEventListener('submit', async (event) => {
     } else table.columns.push({ id: uid('col'), ...payload });
 
     columnModal.close(); render(); await persist();
+    await logActivity(table.id, state.editingColumnId ? 'edit_column' : 'create_column', name);
 });
 
 if (rowForm) rowForm.addEventListener('submit', async (event) => {
@@ -778,6 +839,7 @@ if (rowForm) rowForm.addEventListener('submit', async (event) => {
     } else table.rows.push({ id: uid('row'), values });
 
     rowModal.close(); render(); await persist();
+    await logActivity(table.id, state.editingRowId ? 'edit_row' : 'create_row');
 });
 
 if (tableListMine || tableListShared) [tableListMine, tableListShared].filter(Boolean).forEach((listEl) => listEl.addEventListener('click', async (event) => {
@@ -793,6 +855,7 @@ if (tableListMine || tableListShared) [tableListMine, tableListShared].filter(Bo
     if (!table || !isOwnerTable(table) || !window.confirm('Delete this table?')) return;
     state.tables = state.tables.filter((t) => t.id !== table.id);
     render(); await persist();
+    await logActivity(table.id, 'delete_table', table.name || '');
 }));
 
 if (columnList) columnList.addEventListener('click', async (event) => {
@@ -822,6 +885,7 @@ if (columnList) columnList.addEventListener('click', async (event) => {
     table.columns = table.columns.filter((c) => c.id !== columnId);
     table.rows = table.rows.map((row) => ({ ...row, values: Object.fromEntries(Object.entries(row.values || {}).filter(([k]) => k !== columnId)) }));
     render(); await persist();
+    await logActivity(table.id, 'delete_column', columnId);
 });
 
 if (dataTable) dataTable.addEventListener('change', async (event) => {
@@ -894,11 +958,16 @@ if (dataTable) dataTable.addEventListener('click', async (event) => {
     if (!delBtn || !window.confirm('Delete this row?')) return;
     table.rows = table.rows.filter((r) => r.id !== delBtn.dataset.deleteRow);
     render(); await persist();
+    await logActivity(table.id, 'delete_row', delBtn.dataset.deleteRow || '');
 });
 
 if (tableSearchInput) tableSearchInput.addEventListener('input', render);
 if (tagFilterSelect) tagFilterSelect.addEventListener('change', render);
 if (rowSearchInput) rowSearchInput.addEventListener('input', () => { if (activeTable()) renderRows(activeTable()); });
+if (activityTableFilter) activityTableFilter.addEventListener('change', renderActivities);
+if (activityUserFilter) activityUserFilter.addEventListener('input', renderActivities);
+if (activityTypeFilter) activityTypeFilter.addEventListener('change', renderActivities);
+if (activityDateFilter) activityDateFilter.addEventListener('change', renderActivities);
 
 function openTagEditModal(tagId) {
     const tag = state.tags.find((t) => t.id === tagId);
