@@ -308,16 +308,6 @@ function updateUnreadBadge() {
     activityUnreadBadge.textContent = String(unread);
 }
 
-async function logActivity(tableId, action, details = '') {
-    try {
-        await fetch('index.php?activity=1', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tableId, action, details }),
-        });
-    } catch {}
-}
-
 function renderActivities() {
     if (!activityList) return;
     const tableFilter = String(activityTableFilter?.value || '');
@@ -350,7 +340,7 @@ function renderActivities() {
             <div>
                 <strong>${escapeHtml(a.tableName || 'Table')}</strong>
                 <small class="muted">${escapeHtml(actionLabel)} • ${escapeHtml(new Date(a.timestamp || Date.now()).toLocaleString())}</small>
-                <div class="muted">${escapeHtml(a.user || '')}${a.details ? ` • ${escapeHtml(a.details)}` : ''}</div>
+                <div class="muted">${escapeHtml(a.user || '')}${a.details ? ` • ${escapeHtml(String(a.details).startsWith('{') ? 'Updated table data' : a.details)}` : ''}</div>
             </div>
         </li>
     `;
@@ -806,7 +796,6 @@ if (tableForm) tableForm.addEventListener('submit', async (event) => {
     }
 
     tableModal.close(); render(); await persist();
-    if (changedTableId) await logActivity(changedTableId, state.editingTableId ? 'update_table' : 'create_table', `${name} (${tagIds.length} tags)`);
 });
 
 if (columnForm) columnForm.addEventListener('submit', async (event) => {
@@ -834,7 +823,6 @@ if (columnForm) columnForm.addEventListener('submit', async (event) => {
     } else table.columns.push({ id: uid('col'), ...payload });
 
     columnModal.close(); render(); await persist();
-    await logActivity(table.id, state.editingColumnId ? 'edit_column' : 'create_column', `${name} [${type}]`);
 });
 
 if (rowForm) rowForm.addEventListener('submit', async (event) => {
@@ -862,7 +850,6 @@ if (rowForm) rowForm.addEventListener('submit', async (event) => {
     } else table.rows.push({ id: uid('row'), values });
 
     rowModal.close(); render(); await persist();
-    await logActivity(table.id, state.editingRowId ? 'edit_row' : 'create_row', JSON.stringify(values));
 });
 
 if (tableListMine || tableListShared) [tableListMine, tableListShared].filter(Boolean).forEach((listEl) => listEl.addEventListener('click', async (event) => {
@@ -878,7 +865,6 @@ if (tableListMine || tableListShared) [tableListMine, tableListShared].filter(Bo
     if (!table || !isOwnerTable(table) || !window.confirm('Delete this table?')) return;
     state.tables = state.tables.filter((t) => t.id !== table.id);
     render(); await persist();
-    await logActivity(table.id, 'delete_table', table.name || '');
 }));
 
 if (columnList) columnList.addEventListener('click', async (event) => {
@@ -908,7 +894,6 @@ if (columnList) columnList.addEventListener('click', async (event) => {
     table.columns = table.columns.filter((c) => c.id !== columnId);
     table.rows = table.rows.map((row) => ({ ...row, values: Object.fromEntries(Object.entries(row.values || {}).filter(([k]) => k !== columnId)) }));
     render(); await persist();
-    await logActivity(table.id, 'delete_column', columnId);
 });
 
 if (dataTable) dataTable.addEventListener('change', async (event) => {
@@ -981,7 +966,6 @@ if (dataTable) dataTable.addEventListener('click', async (event) => {
     if (!delBtn || !window.confirm('Delete this row?')) return;
     table.rows = table.rows.filter((r) => r.id !== delBtn.dataset.deleteRow);
     render(); await persist();
-    await logActivity(table.id, 'delete_row', delBtn.dataset.deleteRow || '');
 });
 
 if (tableSearchInput) tableSearchInput.addEventListener('input', render);
@@ -1076,6 +1060,16 @@ if (activityBellBtn) activityBellBtn.addEventListener('click', () => {
 });
 if (closeActivityDropdownBtn) closeActivityDropdownBtn.addEventListener('click', () => {
     if (activityDropdown) activityDropdown.hidden = true;
+    markActivitiesRead();
+    renderActivities();
+});
+
+document.addEventListener('click', (event) => {
+    if (!activityDropdown || activityDropdown.hidden) return;
+    const inDropdown = activityDropdown.contains(event.target);
+    const onBell = activityBellBtn && activityBellBtn.contains(event.target);
+    if (inDropdown || onBell) return;
+    activityDropdown.hidden = true;
     markActivitiesRead();
     renderActivities();
 });
