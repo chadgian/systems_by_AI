@@ -60,7 +60,8 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<main class="layout">
+<a class="skip-link" href="#mainBuilder">Skip to data builder</a>
+<main class="layout" id="mainBuilder">
     <header class="hero card">
         <div>
             <p class="eyebrow">NO-CODE DATA BUILDER</p>

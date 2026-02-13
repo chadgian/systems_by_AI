@@ -231,3 +231,49 @@ tbody tr td:first-child input[type="checkbox"] {
     border: 1px solid #c5d7ff !important;
     color: #223b73 !important;
 }
+
+
+.skip-link {
+    position: absolute;
+    left: -999px;
+    top: 0;
+    background: #1f3fb2;
+    color: #fff;
+    padding: .45rem .7rem;
+    border-radius: 0 0 8px 8px;
+    z-index: 1000;
+}
+
+.skip-link:focus {
+    left: 12px;
+}
+
+button:hover { filter: brightness(0.97); }
+button:focus-visible,
+input:focus-visible {
+    outline: 3px solid #9ab1ff;
+    outline-offset: 1px;
+}
+
+.toolbar {
+    position: sticky;
+    top: .5rem;
+    background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,255,255,0.9));
+    backdrop-filter: blur(4px);
+    padding: .35rem;
+    border-radius: 10px;
+    border: 1px solid #e3eafb;
+    z-index: 5;
+}
+
+.status-text {
+    background: #f8fbff;
+    border: 1px solid #e2e9fb;
+    border-radius: 8px;
+    padding: .5rem .65rem;
+}
+
+.step-hint {
+    margin: 0 0 .7rem;
+    font-size: .93rem;
+}

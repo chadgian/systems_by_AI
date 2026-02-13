@@ -47,21 +47,21 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
         }
         body {
             margin: 0;
-            background: #f4f7ff;
+            background: linear-gradient(180deg, #f3f6ff 0%, #eef3ff 100%);
             color: #1a2340;
         }
         .wrap {
             width: min(980px, 94vw);
-            margin: 2rem auto;
+            margin: 2.2rem auto;
             display: grid;
-            gap: 1rem;
+            gap: 1.1rem;
         }
         .panel {
             background: #fff;
-            border-radius: 14px;
+            border-radius: 16px;
             border: 1px solid #d9e2f5;
-            box-shadow: 0 10px 24px rgba(31, 53, 104, 0.08);
-            padding: 1rem 1.1rem;
+            box-shadow: 0 14px 28px rgba(31, 53, 104, 0.08);
+            padding: 1.2rem;
         }
         h1 { margin: 0 0 .4rem; }
         .muted { color: #5f6f94; margin: 0; }
@@ -76,12 +76,18 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
         .project-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .65rem; }
         .project-item {
             border: 1px solid #e1e8f7;
-            border-radius: 10px;
-            padding: .8rem;
+            border-radius: 12px;
+            padding: .9rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
             gap: .8rem;
+            background: #fbfcff;
+            transition: transform .15s ease, box-shadow .2s ease;
+        }
+        .project-item:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 18px rgba(53, 96, 255, 0.12);
         }
         .project-name { font-weight: 700; }
         .project-meta { color: #5f6f94; font-size: .92rem; }
@@ -89,10 +95,17 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
             text-decoration: none;
             background: #3560ff;
             color: white;
-            padding: .45rem .72rem;
+            padding: .5rem .78rem;
             border-radius: 8px;
             font-weight: 600;
             white-space: nowrap;
+            box-shadow: 0 4px 10px rgba(53, 96, 255, 0.25);
+        }
+        a.button:hover { background: #244ae0; }
+        a.button:focus-visible,
+        .disabled:focus-visible {
+            outline: 3px solid #8aa3ff;
+            outline-offset: 2px;
         }
         .disabled {
             background: #eef1f9;
@@ -100,6 +113,12 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
             padding: .45rem .72rem;
             border-radius: 8px;
             font-weight: 600;
+        }
+        @media (max-width: 680px) {
+            .project-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
         }
     </style>
 </head>
