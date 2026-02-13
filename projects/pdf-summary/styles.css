@@ -42,6 +42,7 @@ body {
     gap: 1rem;
     align-items: start;
 }
+.hero-actions { display: grid; gap: .6rem; justify-items: end; }
 
 .eyebrow { margin: 0; color: var(--primary); font-weight: 700; letter-spacing: .08em; font-size: .8rem; }
 h1 { margin: .4rem 0 .6rem; font-size: clamp(1.35rem, 1.9vw, 2rem); }
@@ -175,6 +176,7 @@ th { background: #f7f8fc; color: #24305E; }
 
 @media (max-width: 860px) {
     .hero { flex-direction: column; }
+    .hero-actions { justify-items: start; }
     .toolbar { grid-template-columns: 1fr 1fr; }
     .toolbar #scanBtn,
     .toolbar input[type="search"] { grid-column: span 2; }

@@ -10,6 +10,7 @@ const state = {
     userDirectory: [],
     tags: [],
     editingTagId: null,
+    tableSort: { columnId: null, direction: "asc" },
 };
 
 const authView = document.getElementById('authView');
@@ -26,7 +27,8 @@ const pageSubtitle = document.getElementById('pageSubtitle');
 
 const homeView = document.getElementById('homeView');
 const tableView = document.getElementById('tableView');
-const tableList = document.getElementById('tableList');
+const tableListMine = document.getElementById('tableListMine');
+const tableListShared = document.getElementById('tableListShared');
 const activeTableTitle = document.getElementById('activeTableTitle');
 const columnList = document.getElementById('columnList');
 const dataTable = document.getElementById('dataTable');
@@ -75,8 +77,8 @@ const openAddRowModalBtn = document.getElementById('openAddRowModalBtn');
 const openMergeModalBtn = document.getElementById('openMergeModalBtn');
 const openShareModalBtn = document.getElementById('openShareModalBtn');
 const exportTableBtn = document.getElementById('exportTableBtn');
-const importTableBtn = document.getElementById('importTableBtn');
-const importTableInput = document.getElementById('importTableInput');
+const importTableHomeBtn = document.getElementById('importTableHomeBtn');
+const importTableHomeInput = document.getElementById('importTableHomeInput');
 const openTagManagerBtn = document.getElementById('openTagManagerBtn');
 
 const tagModal = document.getElementById('tagModal');
@@ -85,10 +87,15 @@ const tagList = document.getElementById('tagList');
 const tagNameInput = document.getElementById('tagNameInput');
 const tagColorInput = document.getElementById('tagColorInput');
 const addTagBtn = document.getElementById('addTagBtn');
+const closeTagModalBtn = document.getElementById('closeTagModalBtn');
+const tagColorPreview = document.getElementById('tagColorPreview');
 const tagEditModal = document.getElementById('tagEditModal');
 const tagEditForm = document.getElementById('tagEditForm');
 const tagEditNameInput = document.getElementById('tagEditNameInput');
 const tagEditColorInput = document.getElementById('tagEditColorInput');
+const tagEditColorPreview = document.getElementById('tagEditColorPreview');
+const cancelTagEditBtn = document.getElementById('cancelTagEditBtn');
+const cancelTableModalBtn = document.getElementById('cancelTableModalBtn');
 
 const uid = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 const tableById = (id) => state.tables.find((t) => t.id === id) || null;
@@ -194,6 +201,34 @@ async function importIntoCurrentTable(file) {
     await persist();
 }
 
+async function importTableAsNew(file) {
+    if (!file) return;
+    const text = await file.text();
+    let parsed = null;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        window.alert('Invalid JSON file.');
+        return;
+    }
+    const tablePayload = parsed && typeof parsed === 'object' && parsed.table ? parsed.table : parsed;
+    const normalized = normalizeImportedTable(tablePayload);
+    if (!normalized) return window.alert('Invalid table format.');
+
+    state.tables.push({
+        id: uid('tbl'),
+        name: normalized.name,
+        tagIds: normalized.tagIds.filter((id) => state.tags.some((tag) => tag.id === id)),
+        columns: normalized.columns,
+        rows: normalized.rows,
+        _permission: 'owner',
+        _owner: state.currentUser,
+        _sharedWith: {},
+    });
+    render();
+    await persist();
+}
+
 function contrastColor(hex) {
     const c = String(hex || '').replace('#', '');
     if (c.length !== 6) return '#0f172a';
@@ -268,32 +303,36 @@ function renderHome() {
         return `${table.name || ''} ${tagNames}`.toLowerCase().includes(query);
     });
 
-    if (!filtered.length) {
-        tableList.innerHTML = state.tables.length ? '<li>No matching tables found.</li>' : '<li>No tables yet. Create your first one.</li>';
-        return;
-    }
+    const mine = filtered.filter((t) => t._permission === 'owner');
+    const shared = filtered.filter((t) => t._permission !== 'owner');
 
-    tableList.innerHTML = filtered.map((table) => {
-        const access = table._permission === 'owner' ? 'Owner' : (table._permission === 'edit' ? 'Shared: edit' : 'Shared: view');
-        const tags = (table.tagIds || []).map((id) => {
-            const tag = tagById(id);
-            if (!tag) return '';
-            const color = tag.color || '#d32f2f';
-            const text = contrastColor(color);
-            return `<span class="tag-pill" style="background:${escapeHtml(color)};color:${escapeHtml(text)};border-color:${escapeHtml(color)}">${escapeHtml(tag.name)}</span>`;
+    const renderTableItems = (tables, emptyMessage) => {
+        if (!tables.length) return `<li>${emptyMessage}</li>`;
+        return tables.map((table) => {
+            const access = table._permission === 'owner' ? 'Owner' : (table._permission === 'edit' ? 'Shared: edit' : 'Shared: view');
+            const tags = (table.tagIds || []).map((id) => {
+                const tag = tagById(id);
+                if (!tag) return '';
+                const color = tag.color || '#d32f2f';
+                const text = contrastColor(color);
+                return `<span class="tag-pill" style="background:${escapeHtml(color)};color:${escapeHtml(text)};border-color:${escapeHtml(color)}">${escapeHtml(tag.name)}</span>`;
+            }).join('');
+            return `<li>
+                <div>
+                    <strong>${escapeHtml(table.name)}</strong>
+                    <small class="muted">${table.columns?.length || 0} columns • ${table.rows?.length || 0} rows • ${access} ${table._owner ? `• by ${escapeHtml(table._owner)}` : ''}</small>
+                    ${tags ? `<div class="tag-row">${tags}</div>` : ''}
+                </div>
+                <div class="inline-actions">
+                    <button data-open-table="${table.id}">Open</button>
+                    ${table._permission === 'owner' ? `<button class="ghost" data-edit-table="${table.id}">Rename</button><button class="danger" data-delete-table="${table.id}">Delete</button>` : ''}
+                </div>
+            </li>`;
         }).join('');
-        return `<li>
-            <div>
-                <strong>${escapeHtml(table.name)}</strong>
-                <small class="muted">${table.columns?.length || 0} columns • ${table.rows?.length || 0} rows • ${access} ${table._owner ? `• by ${escapeHtml(table._owner)}` : ''}</small>
-                ${tags ? `<div class="tag-row">${tags}</div>` : ''}
-            </div>
-            <div class="inline-actions">
-                <button class="ghost" data-open-table="${table.id}">Open</button>
-                ${isOwnerTable(table) ? `<button class="ghost" data-edit-table="${table.id}">Rename</button><button class="danger" data-delete-table="${table.id}">Delete</button>` : ''}
-            </div>
-        </li>`;
-    }).join('');
+    };
+
+    if (tableListMine) tableListMine.innerHTML = renderTableItems(mine, state.tables.length ? 'No matching tables in your list.' : 'No tables yet. Create your first one.');
+    if (tableListShared) tableListShared.innerHTML = renderTableItems(shared, 'No shared tables yet.');
 }
 
 function renderColumns(table) {
@@ -360,10 +399,22 @@ function renderRows(table) {
     const editable = canEditTable(table);
     const mergedCols = mergedColumnsForTable(table);
     const cols = [...table.columns, ...mergedCols];
-    const head = `<tr>${cols.map((c) => `<th>${escapeHtml(c.__label || c.name)}</th>`).join('')}<th>Actions</th></tr>`;
+    const head = `<tr>${cols.map((c) => `<th><button class="ghost table-sort-btn" type="button" data-sort-col="${escapeHtml(c.id)}">${escapeHtml(c.__label || c.name)}</button></th>`).join('')}<th>Actions</th></tr>`;
 
     const query = String(rowSearchInput?.value || "").toLowerCase().trim();
-    const filteredRows = (table.rows || []).filter((row) => rowMatchesSearch(table, row, query));
+    let filteredRows = (table.rows || []).filter((row) => rowMatchesSearch(table, row, query));
+
+    if (state.tableSort.columnId) {
+        const col = cols.find((c) => c.id === state.tableSort.columnId);
+        if (col) {
+            const factor = state.tableSort.direction === 'desc' ? -1 : 1;
+            filteredRows = [...filteredRows].sort((a, b) => {
+                const av = String(getDisplayValue(table, col, a.values?.[col.id] ?? '')).toLowerCase();
+                const bv = String(getDisplayValue(table, col, b.values?.[col.id] ?? '')).toLowerCase();
+                return av.localeCompare(bv, undefined, { numeric: true }) * factor;
+            });
+        }
+    }
 
     const body = filteredRows.length ? filteredRows.map((row) => {
         const cells = cols.map((col) => {
@@ -376,7 +427,7 @@ function renderRows(table) {
             return `<td>${renderInlineCell(table, row, col)}</td>`;
         }).join('');
 
-        return `<tr>${cells}<td class="inline-actions">${editable ? `<button class="ghost" data-move-row-up="${row.id}">↑</button><button class="ghost" data-move-row-down="${row.id}">↓</button><button class="ghost" data-edit-row="${row.id}">Edit</button><button class="danger" data-delete-row="${row.id}">Delete</button>` : '<small class="muted">View only</small>'}</td></tr>`;
+        return `<tr>${cells}<td class="inline-actions action-cell">${editable ? `<button class="ghost icon-btn" data-move-row-up="${row.id}" title="Move up">↑</button><button class="ghost icon-btn" data-move-row-down="${row.id}" title="Move down">↓</button><button class="ghost" data-edit-row="${row.id}">Edit</button><button class="danger" data-delete-row="${row.id}">Delete</button>` : '<small class="muted">View only</small>'}</td></tr>`;
     }).join('') : `<tr><td colspan="${cols.length + 1}">${(table.rows || []).length ? "No matching rows." : "No rows yet."}</td></tr>`;
 
     dataTable.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
@@ -393,7 +444,6 @@ function renderTablePage() {
     if (openColumnsModalBtn) openColumnsModalBtn.disabled = false;
     openMergeModalBtn.disabled = !canEditTable(table);
     if (exportTableBtn) exportTableBtn.disabled = false;
-    if (importTableBtn) importTableBtn.disabled = !canEditTable(table);
 
     renderColumns(table);
     renderRows(table);
@@ -622,11 +672,11 @@ if (openAddRowModalBtn) openAddRowModalBtn.addEventListener('click', () => openR
 if (openMergeModalBtn) openMergeModalBtn.addEventListener('click', openMergeModal);
 if (openShareModalBtn) openShareModalBtn.addEventListener('click', openShareModal);
 if (exportTableBtn) exportTableBtn.addEventListener('click', () => exportCurrentTable());
-if (importTableBtn) importTableBtn.addEventListener('click', () => importTableInput?.click());
-if (importTableInput) importTableInput.addEventListener('change', async () => {
-    const file = importTableInput.files && importTableInput.files[0];
-    if (file) await importIntoCurrentTable(file);
-    importTableInput.value = '';
+if (importTableHomeBtn) importTableHomeBtn.addEventListener('click', () => importTableHomeInput?.click());
+if (importTableHomeInput) importTableHomeInput.addEventListener('change', async () => {
+    const file = importTableHomeInput.files && importTableHomeInput.files[0];
+    if (file) await importTableAsNew(file);
+    importTableHomeInput.value = '';
 });
 if (openTagManagerBtn) openTagManagerBtn.addEventListener('click', openTagModal);
 
@@ -663,6 +713,7 @@ if (mergeForm) mergeForm.addEventListener('submit', (event) => {
 
 if (tableForm) tableForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (event.submitter && event.submitter.id === "cancelTableModalBtn") { tableModal.close(); return; }
     const name = tableNameInput.value.trim();
     const tagIds = tableTagChoices ? Array.from(tableTagChoices.querySelectorAll('input:checked')).map((el) => el.value) : [];
     if (!name) return;
@@ -729,7 +780,7 @@ if (rowForm) rowForm.addEventListener('submit', async (event) => {
     rowModal.close(); render(); await persist();
 });
 
-if (tableList) tableList.addEventListener('click', async (event) => {
+if (tableListMine || tableListShared) [tableListMine, tableListShared].filter(Boolean).forEach((listEl) => listEl.addEventListener('click', async (event) => {
     const openBtn = event.target.closest('[data-open-table]');
     if (openBtn) { state.activeTableId = openBtn.dataset.openTable; state.mergeConfig = null; syncRoute(true); render(); return; }
 
@@ -742,7 +793,7 @@ if (tableList) tableList.addEventListener('click', async (event) => {
     if (!table || !isOwnerTable(table) || !window.confirm('Delete this table?')) return;
     state.tables = state.tables.filter((t) => t.id !== table.id);
     render(); await persist();
-});
+}));
 
 if (columnList) columnList.addEventListener('click', async (event) => {
     const table = activeTable();
@@ -785,6 +836,16 @@ if (dataTable) dataTable.addEventListener('change', async (event) => {
 });
 
 if (dataTable) dataTable.addEventListener('click', async (event) => {
+    const sortBtn = event.target.closest('[data-sort-col]');
+    if (sortBtn) {
+        const colId = sortBtn.dataset.sortCol;
+        if (state.tableSort.columnId === colId) state.tableSort.direction = state.tableSort.direction === 'asc' ? 'desc' : 'asc';
+        else { state.tableSort.columnId = colId; state.tableSort.direction = 'asc'; }
+        const table = activeTable();
+        if (table) renderRows(table);
+        return;
+    }
+
     const table = activeTable();
     if (!table) return;
 
@@ -845,6 +906,7 @@ function openTagEditModal(tagId) {
     state.editingTagId = tag.id;
     if (tagEditNameInput) tagEditNameInput.value = tag.name || '';
     if (tagEditColorInput) tagEditColorInput.value = tag.color || '#d32f2f';
+    if (tagEditColorPreview && tagEditColorInput) tagEditColorPreview.style.background = tagEditColorInput.value;
     tagEditModal.showModal();
 }
 
@@ -866,6 +928,7 @@ if (addTagBtn) addTagBtn.addEventListener('click', async () => {
 
 if (tagForm) tagForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (event.submitter && event.submitter.id === "closeTagModalBtn") { tagModal.close(); return; }
     await addTagFromInputs();
 });
 
@@ -889,6 +952,7 @@ if (tagList) tagList.addEventListener('click', async (event) => {
 
 if (tagEditForm) tagEditForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (event.submitter && event.submitter.id === 'cancelTagEditBtn') { tagEditModal?.close(); return; }
     const tag = state.tags.find((t) => t.id === state.editingTagId);
     if (!tag) return;
     const name = String(tagEditNameInput?.value || '').trim();
@@ -901,6 +965,16 @@ if (tagEditForm) tagEditForm.addEventListener('submit', async (event) => {
     render();
     await persist();
 });
+
+
+if (closeTagModalBtn) closeTagModalBtn.addEventListener('click', () => tagModal?.close());
+if (cancelTagEditBtn) cancelTagEditBtn.addEventListener('click', () => tagEditModal?.close());
+if (cancelTableModalBtn) cancelTableModalBtn.addEventListener('click', () => tableModal?.close());
+
+if (tagColorInput) tagColorInput.addEventListener('input', () => { if (tagColorPreview) tagColorPreview.style.background = tagColorInput.value; });
+if (tagEditColorInput) tagEditColorInput.addEventListener('input', () => { if (tagEditColorPreview) tagEditColorPreview.style.background = tagEditColorInput.value; });
+if (tagColorPreview && tagColorInput) tagColorPreview.style.background = tagColorInput.value;
+if (tagEditColorPreview && tagEditColorInput) tagEditColorPreview.style.background = tagEditColorInput.value;
 
 window.addEventListener('popstate', () => {
     const url = new URL(window.location.href);

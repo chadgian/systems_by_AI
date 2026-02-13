@@ -19,7 +19,7 @@
                 like total files, total pages, and total size.
             </p>
         </div>
-        <div class="hero-badge">No server upload required for scanning</div>
+        <div class="hero-actions"><a class="button" href="../../index.php">Home</a><div class="hero-badge">No server upload required for scanning</div></div>
     </header>
 
     <section class="panel controls" id="controlsPanel">

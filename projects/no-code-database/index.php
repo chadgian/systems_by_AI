@@ -385,7 +385,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>No-Code Data Builder</title>
+    <title>Modular Database System</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -394,7 +394,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <?php $authPage = (($_GET['page'] ?? 'login') === 'signup') ? 'signup' : 'login'; ?>
     <main class="layout" id="authView">
         <section class="card auth-card">
-            <h1>No-Code Data Builder</h1>
+            <h1>Modular Database System</h1>
             <p class="muted">Please <?php echo $authPage === 'signup' ? 'create an account' : 'log in'; ?> to continue.</p>
             <p class="muted">Demo users: <code>demo_alice / demo1234</code> and <code>demo_bob / demo1234</code>.</p>
 
@@ -471,14 +471,14 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <main class="layout" id="appRoot">
         <header class="hero card">
             <div>
-                <p class="eyebrow">NO-CODE DATA BUILDER</p>
+                <p class="eyebrow">MODULAR DATABASE SYSTEM</p>
                 <h1 id="pageTitle">Your tables</h1>
                 <p id="pageSubtitle" class="muted">Start by creating or selecting a table.</p>
             </div>
             <div class="hero-actions">
                 <span class="muted" id="currentUserLabel"></span>
                 <button class="ghost" id="themeToggleBtn" type="button" aria-label="Switch to dark mode">🌙 Dark mode</button>
-                <button class="ghost" id="logoutBtn" type="button">Log out</button>
+                <a class="ghost" href="../../index.php">Home</a><button class="ghost" id="logoutBtn" type="button">Log out</button>
                 <div class="badge" id="saveState">Ready</div>
             </div>
         </header>
@@ -487,8 +487,10 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             <div class="section-head">
                 <h2>Tables</h2>
                 <div class="inline-actions">
-                    <button class="ghost" id="openTagManagerBtn">Manage tags</button>
-                    <button id="openCreateTableModalBtn">Create table</button>
+                    <button class="ghost" id="openTagManagerBtn" type="button">Manage tags</button>
+                    <button class="ghost" id="importTableHomeBtn" type="button">Import table</button>
+                    <input id="importTableHomeInput" type="file" accept="application/json,.json" hidden>
+                    <button id="openCreateTableModalBtn" type="button">Create table</button>
                 </div>
             </div>
             <div class="inline-actions">
@@ -497,7 +499,16 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                     <option value="">All tags</option>
                 </select>
             </div>
-            <ul id="tableList" class="list"></ul>
+            <div class="table-groups">
+                <section>
+                    <h3>My tables</h3>
+                    <ul id="tableListMine" class="list"></ul>
+                </section>
+                <section>
+                    <h3>Shared with me</h3>
+                    <ul id="tableListShared" class="list"></ul>
+                </section>
+            </div>
         </section>
 
         <section class="card" id="tableView" hidden>
@@ -513,9 +524,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                         <button class="ghost" id="openShareModalBtn" type="button">Share</button>
                         <button class="ghost" id="openColumnsModalBtn" type="button">Columns</button>
                         <button class="ghost" id="exportTableBtn" type="button">Export table</button>
-                        <button class="ghost" id="importTableBtn" type="button">Import table</button>
-                        <input id="importTableInput" type="file" accept="application/json,.json" hidden>
-                        <button id="openMergeModalBtn" type="button">Merge related table</button>
+                                                <button id="openMergeModalBtn" type="button">Merge related table</button>
                     </div>
                 </details>
             </div>
@@ -528,15 +537,15 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         </section>
     </main>
 
-    <dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><div id="tableTagChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
+    <dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><div id="tableTagChoices" class="merge-columns"></div><menu><button type="button" id="cancelTableModalBtn" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="columnModal" class="modal"><form method="dialog" id="columnForm" class="modal-form"><h3 id="columnModalTitle">Add column</h3><input id="columnNameInput" type="text" placeholder="Column name" required><select id="columnTypeInput"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="yesno">Yes / No</option><option value="dropdown">Dropdown</option><option value="relation">Relation</option><option value="remarks">Remarks (timestamped append)</option></select><input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden><div id="relationConfig" class="row" hidden><select id="relationTableInput"></select><select id="relationColumnInput"></select></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveColumnBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="columnsPanelModal" class="modal"><form method="dialog" class="modal-form"><div class="section-head"><h3>Columns</h3><button class="ghost" id="openAddColumnModalBtn" type="button">Add column</button></div><ul id="columnList" class="list"></ul><menu><button value="cancel" class="ghost">Close</button></menu></form></dialog>
     <dialog id="rowModal" class="modal"><form method="dialog" id="rowForm" class="modal-form"><h3 id="rowModalTitle">Add row</h3><div id="rowFields"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveRowBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="mergeModal" class="modal"><form method="dialog" id="mergeForm" class="modal-form"><h3>Merge related table</h3><p class="muted">Choose a relation column from this table, then choose columns from the linked table.</p><select id="mergeRelationSelect"></select><div id="mergeColumnChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="applyMergeBtn" value="default">Apply merge</button></menu></form></dialog>
     <dialog id="shareModal" class="modal"><form method="dialog" id="shareForm" class="modal-form"><h3>Share table</h3><p class="muted">Choose users and permission level.</p><div id="shareUsersList" class="share-grid"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveShareBtn" value="default">Save sharing</button></menu></form></dialog>
 
-    <dialog id="tagModal" class="modal"><form method="dialog" id="tagForm" class="modal-form"><h3>Manage tags</h3><div class="row"><input id="tagNameInput" type="text" placeholder="Tag name"><input id="tagColorInput" type="color" value="#d32f2f"><button id="addTagBtn" type="button">Add tag</button></div><div id="tagList" class="list"></div><menu><button value="cancel" class="ghost">Close</button></menu></form></dialog>
-    <dialog id="tagEditModal" class="modal"><form method="dialog" id="tagEditForm" class="modal-form"><h3>Edit tag</h3><input id="tagEditNameInput" type="text" placeholder="Tag name" required><input id="tagEditColorInput" type="color" value="#d32f2f"><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTagEditBtn" value="default">Save</button></menu></form></dialog>
+    <dialog id="tagModal" class="modal"><form method="dialog" id="tagForm" class="modal-form"><h3>Manage tags</h3><div class="row"><input id="tagNameInput" type="text" placeholder="Tag name"><input id="tagColorInput" type="color" value="#d32f2f"><span id="tagColorPreview" class="color-preview" aria-hidden="true"></span><button id="addTagBtn" type="button">Add tag</button></div><div id="tagList" class="list"></div><menu><button type="button" id="closeTagModalBtn" class="ghost">Close</button></menu></form></dialog>
+    <dialog id="tagEditModal" class="modal"><form method="dialog" id="tagEditForm" class="modal-form"><h3>Edit tag</h3><input id="tagEditNameInput" type="text" placeholder="Tag name" required><div class="row"><input id="tagEditColorInput" type="color" value="#d32f2f"><span id="tagEditColorPreview" class="color-preview" aria-hidden="true"></span></div><menu><button type="button" id="cancelTagEditBtn" class="ghost">Cancel</button><button id="saveTagEditBtn" value="default">Save</button></menu></form></dialog>
 
     <script src="script.js"></script>
 <?php endif; ?>
