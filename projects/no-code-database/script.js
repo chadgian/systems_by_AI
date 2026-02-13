@@ -122,6 +122,44 @@ function parseOptions(raw) {
     return String(raw || '').split(',').map((p) => p.trim()).filter(Boolean);
 }
 
+function nowInCurrentTimezone() {
+    return new Date();
+}
+
+function formatLocalDateTime(dateObj = new Date()) {
+    const local = new Date(dateObj);
+    const y = local.getFullYear();
+    const m = String(local.getMonth() + 1).padStart(2, '0');
+    const d = String(local.getDate()).padStart(2, '0');
+    const hh = String(local.getHours()).padStart(2, '0');
+    const mm = String(local.getMinutes()).padStart(2, '0');
+    const ss = String(local.getSeconds()).padStart(2, '0');
+    return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+}
+
+function toggleColumnTypeConfig() {
+    if (!columnTypeInput) return;
+    const type = columnTypeInput.value;
+    if (dropdownOptionsInput) {
+        dropdownOptionsInput.hidden = type !== 'dropdown';
+        dropdownOptionsInput.disabled = type !== 'dropdown';
+        if (type !== 'dropdown') dropdownOptionsInput.value = '';
+    }
+    if (relationConfig) {
+        const isRelation = type === 'relation';
+        relationConfig.hidden = !isRelation;
+        if (relationTableInput) relationTableInput.disabled = !isRelation;
+        if (relationColumnInput) relationColumnInput.disabled = !isRelation;
+    }
+    if (type === 'relation') populateRelationConfig(relationTableInput?.value, relationColumnInput?.value);
+}
+
+function closeOpenMenusOnOutsideClick(event) {
+    document.querySelectorAll('details.action-menu[open]').forEach((menu) => {
+        if (!menu.contains(event.target)) menu.removeAttribute('open');
+    });
+}
+
 function normalizeImportedTable(payload, fallbackName = 'Imported table') {
     if (!payload || typeof payload !== 'object') return null;
     const name = String(payload.name || fallbackName).trim() || fallbackName;
@@ -652,10 +690,10 @@ function openColumnModal(editId = null) {
     const existing = editId ? table.columns.find((c) => c.id === editId) : null;
     columnNameInput.value = existing?.name || '';
     columnTypeInput.value = existing?.type || 'text';
-    dropdownOptionsInput.hidden = columnTypeInput.value !== 'dropdown';
-    relationConfig.hidden = columnTypeInput.value !== 'relation';
     dropdownOptionsInput.value = (existing?.options || []).join(', ');
-    populateRelationConfig(existing?.relation?.tableId || '', existing?.relation?.columnId || '');
+    if (relationTableInput) relationTableInput.value = existing?.relation?.tableId || '';
+    if (relationColumnInput) relationColumnInput.value = existing?.relation?.columnId || '';
+    toggleColumnTypeConfig();
     columnModal.showModal();
 }
 
@@ -682,7 +720,12 @@ function openRowModal(editId = null) {
         }
         if (col.type === 'remarks') return `<label>${escapeHtml(col.name)}<textarea rows="4" readonly>${escapeHtml(String(value) || 'No remarks yet.')}</textarea><small class="muted">Append-only remarks.</small><textarea name="append_${col.id}" rows="2" placeholder="New remark"></textarea></label>`;
 
-        const inputType = col.type === 'number' ? 'number' : (col.type === 'date' ? 'date' : 'text');
+        if (col.type === 'timestamp') {
+            const timestampValue = String(value || (!editId ? formatLocalDateTime(nowInCurrentTimezone()) : ''));
+            return `<label>${escapeHtml(col.name)}<input type="text" name="${col.id}" value="${escapeHtml(timestampValue)}" readonly><small class="muted">Automatically set to current local timestamp for new rows.</small></label>`;
+        }
+
+        const inputType = col.type === 'number' ? 'number' : (col.type === 'date' ? 'date' : (col.type === 'time' ? 'time' : 'text'));
         return `<label>${escapeHtml(col.name)}<input type="${inputType}" name="${col.id}" value="${escapeHtml(String(value))}"></label>`;
     }).join('');
     rowModal.showModal();
@@ -774,11 +817,7 @@ if (importTableHomeInput) importTableHomeInput.addEventListener('change', async 
 });
 if (openTagManagerBtn) openTagManagerBtn.addEventListener('click', openTagModal);
 
-if (columnTypeInput) columnTypeInput.addEventListener('change', () => {
-    dropdownOptionsInput.hidden = columnTypeInput.value !== 'dropdown';
-    relationConfig.hidden = columnTypeInput.value !== 'relation';
-    if (columnTypeInput.value === 'relation') populateRelationConfig(relationTableInput.value, relationColumnInput.value);
-});
+if (columnTypeInput) columnTypeInput.addEventListener('change', toggleColumnTypeConfig);
 if (relationTableInput) relationTableInput.addEventListener('change', () => populateRelationConfig(relationTableInput.value));
 if (mergeRelationSelect) mergeRelationSelect.addEventListener('change', renderMergeColumnChoices);
 
@@ -866,6 +905,10 @@ if (rowForm) rowForm.addEventListener('submit', async (event) => {
             const previous = String(existingRow?.values?.[col.id] ?? '');
             const newText = String(formData.get(`append_${col.id}`) ?? '').trim();
             values[col.id] = newText ? `${previous ? `${previous}\n` : ''}[${formatTimestamp()}] ${newText}` : previous;
+            continue;
+        }
+        if (col.type === 'timestamp') {
+            values[col.id] = state.editingRowId ? String(formData.get(col.id) ?? existingRow?.values?.[col.id] ?? '') : formatLocalDateTime(nowInCurrentTimezone());
             continue;
         }
         values[col.id] = String(formData.get(col.id) ?? '');
@@ -1092,6 +1135,8 @@ if (closeActivityDropdownBtn) closeActivityDropdownBtn.addEventListener('click',
 });
 
 document.addEventListener('click', (event) => {
+    closeOpenMenusOnOutsideClick(event);
+
     if (!activityDropdown || activityDropdown.hidden) return;
     const inDropdown = activityDropdown.contains(event.target);
     const onBell = activityBellBtn && activityBellBtn.contains(event.target);
@@ -1108,6 +1153,7 @@ window.addEventListener('popstate', () => {
 });
 
 initTheme();
+toggleColumnTypeConfig();
 if (appRoot) {
     checkSession().then(loadUsersForSharing).then(() => {
         setInterval(refreshActivitiesSilently, ACTIVITY_POLL_MS);
