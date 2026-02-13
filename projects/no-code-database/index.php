@@ -383,10 +383,23 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                 if (!in_array($perm, ['owner', 'edit'], true)) continue;
                 $sanitized['owner'] = $existing['owner'] ?? '';
                 $sanitized['sharedWith'] = $existing['sharedWith'] ?? [];
-                $db['tables'][$idx] = $sanitized;
-                $oldName = (string)($existing['name'] ?? '');
-                $details = 'name: ' . $oldName . ' → ' . (string)$sanitized['name'] . '; columns: ' . count($sanitized['columns']) . '; rows: ' . count($sanitized['rows']);
-                $tableChanges[] = ['type' => 'update_table', 'id' => $id, 'name' => (string)$sanitized['name'], 'details' => $details];
+
+                $existingName = (string)($existing['name'] ?? '');
+                $existingTagIds = is_array($existing['tagIds'] ?? null) ? $existing['tagIds'] : [];
+                $existingColumns = is_array($existing['columns'] ?? null) ? $existing['columns'] : [];
+                $existingRows = is_array($existing['rows'] ?? null) ? $existing['rows'] : [];
+
+                $hasChanged =
+                    $existingName !== (string)$sanitized['name'] ||
+                    $existingTagIds !== $sanitized['tagIds'] ||
+                    json_encode($existingColumns) !== json_encode($sanitized['columns']) ||
+                    json_encode($existingRows) !== json_encode($sanitized['rows']);
+
+                if ($hasChanged) {
+                    $db['tables'][$idx] = $sanitized;
+                    $details = 'name: ' . $existingName . ' → ' . (string)$sanitized['name'] . '; columns: ' . count($sanitized['columns']) . '; rows: ' . count($sanitized['rows']);
+                    $tableChanges[] = ['type' => 'update_table', 'id' => $id, 'name' => (string)$sanitized['name'], 'details' => $details];
+                }
             } else {
                 $sanitized['owner'] = $username;
                 $sanitized['sharedWith'] = [];
