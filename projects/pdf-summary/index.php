@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 </head>
 <body>
+<a class="skip-link" href="#controlsPanel">Skip to controls</a>
 <main class="app-shell">
     <header class="hero">
         <div>
@@ -18,10 +19,10 @@
                 like total files, total pages, and total size.
             </p>
         </div>
-        <div class="hero-badge">No server upload required for scanning</div>
+        <div class="hero-actions"><a class="button" href="../../index.php">Home</a><div class="hero-badge">No server upload required for scanning</div></div>
     </header>
 
-    <section class="panel controls">
+    <section class="panel controls" id="controlsPanel">
         <h2>1) Choose files</h2>
         <div class="input-grid">
             <label class="file-card">
@@ -48,17 +49,18 @@
             </div>
         </div>
 
-        <div class="toolbar">
+        <div class="toolbar" role="group" aria-label="Selection actions">
             <button type="button" id="scanBtn" class="primary">Scan & Build Summary</button>
             <button type="button" id="selectAllBtn">Select all</button>
             <button type="button" id="selectNoneBtn">Clear all</button>
             <button type="button" id="resetBtn" class="danger">Reset selection</button>
-            <input id="searchInput" type="search" placeholder="Quick filter table rows...">
+            <input id="searchInput" type="search" placeholder="Quick filter table rows..." aria-label="Search scanned files">
         </div>
         <p id="statusText" class="status-text">No folder selected yet.</p>
     </section>
 
     <section class="panel metrics" aria-live="polite">
+        <p class="muted step-hint">Review the totals before selecting which PDFs to keep in scope.</p>
         <h2>2) Summary</h2>
         <div class="metric-grid">
             <article class="metric"><p>All discovered PDFs</p><strong id="totalFiles">0</strong></article>
