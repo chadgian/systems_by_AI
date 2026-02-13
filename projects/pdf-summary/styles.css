@@ -13,9 +13,11 @@
 
 * { box-sizing: border-box; }
 
+html, body { min-height: 100%; }
+html { background: radial-gradient(circle at 20% 10%, #32406f 0%, #24305E 45%, #1a2340 100%); }
 body {
     margin: 0;
-    background: radial-gradient(circle at 20% 10%, #32406f 0%, #24305E 45%, #1a2340 100%);
+    background: transparent;
     color: var(--text);
 }
 

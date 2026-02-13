@@ -45,9 +45,11 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
             font-family: Inter, Arial, sans-serif;
             color-scheme: light;
         }
+        html, body { min-height: 100%; }
+        html { background: linear-gradient(180deg, #24305E 0%, #1a2340 100%); }
         body {
             margin: 0;
-            background: linear-gradient(180deg, #24305E 0%, #1a2340 100%);
+            background: transparent;
             color: #24305E;
         }
         .wrap {

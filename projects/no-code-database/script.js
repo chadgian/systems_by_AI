@@ -9,6 +9,7 @@ const state = {
     currentUser: null,
     userDirectory: [],
     tags: [],
+    editingTagId: null,
 };
 
 const authView = document.getElementById('authView');
@@ -84,6 +85,10 @@ const tagList = document.getElementById('tagList');
 const tagNameInput = document.getElementById('tagNameInput');
 const tagColorInput = document.getElementById('tagColorInput');
 const addTagBtn = document.getElementById('addTagBtn');
+const tagEditModal = document.getElementById('tagEditModal');
+const tagEditForm = document.getElementById('tagEditForm');
+const tagEditNameInput = document.getElementById('tagEditNameInput');
+const tagEditColorInput = document.getElementById('tagEditColorInput');
 
 const uid = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 const tableById = (id) => state.tables.find((t) => t.id === id) || null;
@@ -834,6 +839,15 @@ if (tableSearchInput) tableSearchInput.addEventListener('input', render);
 if (tagFilterSelect) tagFilterSelect.addEventListener('change', render);
 if (rowSearchInput) rowSearchInput.addEventListener('input', () => { if (activeTable()) renderRows(activeTable()); });
 
+function openTagEditModal(tagId) {
+    const tag = state.tags.find((t) => t.id === tagId);
+    if (!tag || !tagEditModal) return;
+    state.editingTagId = tag.id;
+    if (tagEditNameInput) tagEditNameInput.value = tag.name || '';
+    if (tagEditColorInput) tagEditColorInput.value = tag.color || '#d32f2f';
+    tagEditModal.showModal();
+}
+
 
 async function addTagFromInputs() {
     const name = String(tagNameInput?.value || '').trim();
@@ -858,16 +872,7 @@ if (tagForm) tagForm.addEventListener('submit', async (event) => {
 if (tagList) tagList.addEventListener('click', async (event) => {
     const editBtn = event.target.closest('[data-edit-tag]');
     if (editBtn) {
-        const tag = state.tags.find((t) => t.id === editBtn.dataset.editTag);
-        if (!tag) return;
-        const name = window.prompt('Tag name:', tag.name);
-        if (!name || !name.trim()) return;
-        tag.name = name.trim();
-        const color = window.prompt('Tag color hex:', tag.color || '#d32f2f');
-        if (color && color.trim()) tag.color = color.trim();
-        renderTagManager();
-        render();
-        await persist();
+        openTagEditModal(editBtn.dataset.editTag);
         return;
     }
 
@@ -877,6 +882,21 @@ if (tagList) tagList.addEventListener('click', async (event) => {
     const tagId = delBtn.dataset.deleteTag;
     state.tags = state.tags.filter((t) => t.id !== tagId);
     state.tables = state.tables.map((table) => ({ ...table, tagIds: (table.tagIds || []).filter((id) => id !== tagId) }));
+    renderTagManager();
+    render();
+    await persist();
+});
+
+if (tagEditForm) tagEditForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const tag = state.tags.find((t) => t.id === state.editingTagId);
+    if (!tag) return;
+    const name = String(tagEditNameInput?.value || '').trim();
+    if (!name) return;
+    tag.name = name;
+    tag.color = String(tagEditColorInput?.value || '#d32f2f');
+    tagEditModal?.close();
+    state.editingTagId = null;
     renderTagManager();
     render();
     await persist();

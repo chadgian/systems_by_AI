@@ -501,18 +501,23 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         </section>
 
         <section class="card" id="tableView" hidden>
-            <div class="section-head">
+            <div class="section-head table-toolbar">
                 <h2 id="activeTableTitle">Table</h2>
-                <div class="inline-actions">
+                <div class="toolbar-main-actions">
                     <button class="ghost" id="backToHomeBtn">Back to tables</button>
-                    <button class="ghost" id="openShareModalBtn">Share</button>
-                    <button class="ghost" id="openColumnsModalBtn">Columns</button>
-                    <button class="ghost" id="exportTableBtn" type="button">Export table</button>
-                    <button class="ghost" id="importTableBtn" type="button">Import table</button>
-                    <input id="importTableInput" type="file" accept="application/json,.json" hidden>
-                    <button id="openMergeModalBtn">Merge related table</button>
                     <button id="openAddRowModalBtn">Add row</button>
                 </div>
+                <details class="action-menu">
+                    <summary>Table actions</summary>
+                    <div class="action-menu-list">
+                        <button class="ghost" id="openShareModalBtn" type="button">Share</button>
+                        <button class="ghost" id="openColumnsModalBtn" type="button">Columns</button>
+                        <button class="ghost" id="exportTableBtn" type="button">Export table</button>
+                        <button class="ghost" id="importTableBtn" type="button">Import table</button>
+                        <input id="importTableInput" type="file" accept="application/json,.json" hidden>
+                        <button id="openMergeModalBtn" type="button">Merge related table</button>
+                    </div>
+                </details>
             </div>
 
             <div class="panel-block">
@@ -531,6 +536,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <dialog id="shareModal" class="modal"><form method="dialog" id="shareForm" class="modal-form"><h3>Share table</h3><p class="muted">Choose users and permission level.</p><div id="shareUsersList" class="share-grid"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveShareBtn" value="default">Save sharing</button></menu></form></dialog>
 
     <dialog id="tagModal" class="modal"><form method="dialog" id="tagForm" class="modal-form"><h3>Manage tags</h3><div class="row"><input id="tagNameInput" type="text" placeholder="Tag name"><input id="tagColorInput" type="color" value="#d32f2f"><button id="addTagBtn" type="button">Add tag</button></div><div id="tagList" class="list"></div><menu><button value="cancel" class="ghost">Close</button></menu></form></dialog>
+    <dialog id="tagEditModal" class="modal"><form method="dialog" id="tagEditForm" class="modal-form"><h3>Edit tag</h3><input id="tagEditNameInput" type="text" placeholder="Tag name" required><input id="tagEditColorInput" type="color" value="#d32f2f"><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTagEditBtn" value="default">Save</button></menu></form></dialog>
 
     <script src="script.js"></script>
 <?php endif; ?>
