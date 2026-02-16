@@ -235,12 +235,12 @@ function buildRowsHtml(filteredRecords) {
       group.rows.forEach((item, idx) => {
         const cells = [];
         if (idx === 0) {
-          cells.push(`<td rowspan="${group.rows.length}" style="border:1px solid #000; padding:4px 6px; vertical-align:middle; height:24px;">${group.label}</td>`);
+          cells.push(`<td colspan="2" rowspan="${group.rows.length}" style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle;">${group.label}</td>`);
         }
-        cells.push(`<td style="border:1px solid #000; padding:4px 6px; vertical-align:top; line-height:1.25;">${esc(item.text || '-')}</td>`);
-        cells.push(`<td style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle; height:24px;">${group.includePages ? esc(item.pages || '-') : '-'}</td>`);
+        cells.push(`<td colspan="3" style="border:1px solid #000; padding:4px 6px; vertical-align:top; line-height:1.25;">${esc(item.text || '-')}</td>`);
+        cells.push(`<td style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle;">${group.includePages ? esc(item.pages || '-') : '-'}</td>`);
         if (dayRowIndex === 0) {
-          cells.push(`<td rowspan="${totalRows}" style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle; height:24px;">${esc(dateLabel)}</td>`);
+          cells.push(`<td rowspan="${totalRows}" style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle;">${esc(dateLabel)}</td>`);
         }
         rows.push(`<tr>${cells.join('')}</tr>`);
         dayRowIndex += 1;
@@ -249,7 +249,7 @@ function buildRowsHtml(filteredRecords) {
   }
 
   if (!rows.length) {
-    return '<tr><td colspan="4" style="border:1px solid #000; padding:6px; text-align:center;">No records found in selected date range.</td></tr>';
+    return '<tr><td colspan="7" style="border:1px solid #000; padding:6px; text-align:center;">No records found in selected date range.</td></tr>';
   }
   return rows.join('');
 }
@@ -267,22 +267,21 @@ async function buildExcelHtml(filteredRecords) {
   const rowsHtml = buildRowsHtml(filteredRecords);
 
   const fallbackTemplate = `
-<table style="border-collapse:collapse; table-layout:fixed; width:900px; font-family:Calibri, Arial, sans-serif; font-size:11pt; color:#000;">
-  <colgroup><col style="width:274px;"><col style="width:495px;"><col style="width:49px;"><col style="width:282px;"></colgroup>
-  <tr style="height:24px;"><td colspan="4" style="text-align:center; font-weight:700; font-size:12pt;">CIVIL SERVICE COMMISSION REGIONAL OFFICE NO. VI</td></tr>
-  <tr style="height:22px;"><td colspan="4" style="text-align:center; font-weight:700; font-size:12pt;">ACCOMPLISHMENT REPORT</td></tr>
-  <tr style="height:22px;"><td colspan="4" style="text-align:center;">{{COVERED_TEXT}}</td></tr>
-  <tr style="height:24px;"><td colspan="4" style="padding:2px 8px;">Office: <strong>{{OFFICE}}</strong></td></tr>
-  <tr style="height:24px;"><td colspan="4" style="padding:2px 8px;">Division/Field Office: <strong>{{DIVISION}}</strong></td></tr>
-  <tr style="height:48px;"><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">Target</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">List of Output Deliverables</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">No. of Pages</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">Timeline</td></tr>
+<table style="border-collapse:collapse; table-layout:fixed; width:1140px; font-family:Calibri, Arial, sans-serif; font-size:11pt; color:#000;">
+  <colgroup>
+    <col style="width:150px;"><col style="width:150px;"><col style="width:170px;"><col style="width:170px;"><col style="width:170px;"><col style="width:50px;"><col style="width:280px;">
+  </colgroup>
+  <tr style="height:24px;"><td colspan="7" style="text-align:center; font-weight:700; font-size:12pt;">CIVIL SERVICE COMMISSION REGIONAL OFFICE NO. VI</td></tr>
+  <tr style="height:22px;"><td colspan="7" style="text-align:center; font-weight:700; font-size:12pt;">ACCOMPLISHMENT REPORT</td></tr>
+  <tr style="height:22px;"><td colspan="7" style="text-align:center;">{{COVERED_TEXT}}</td></tr>
+  <tr style="height:24px;"><td colspan="5" style="padding:2px 8px;">Office: <strong>{{OFFICE}}</strong></td><td></td><td></td></tr>
+  <tr style="height:24px;"><td colspan="5" style="padding:2px 8px;">Division/Field Office: <strong>{{DIVISION}}</strong></td><td></td><td></td></tr>
+  <tr style="height:48px;"><td colspan="2" style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">Target</td><td colspan="3" style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">List of Output Deliverables</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">No. of Pages</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">Timeline</td></tr>
   {{ROWS_HTML}}
-  <tr style="height:26px;"><td colspan="4"></td></tr>
-  <tr style="height:20px;"><td colspan="2" style="padding:2px 8px;">Prepared by:</td><td colspan="2" style="padding:2px 8px;">Noted by:</td></tr>
-  <tr style="height:44px;"><td colspan="2" style="text-align:center; vertical-align:bottom; border-bottom:1px solid #000; font-weight:700; padding:2px 8px;">{{PREPARED_BY}}</td><td colspan="2" style="text-align:center; vertical-align:bottom; border-bottom:1px solid #000; font-weight:700; padding:2px 8px;">{{SUPERVISOR_NAME}}</td></tr>
-  <tr style="height:20px;"><td colspan="2" style="text-align:center; font-size:10pt; padding:2px 8px;">Employee</td><td colspan="2" style="text-align:center; font-size:10pt; padding:2px 8px;">{{SUPERVISOR_POSITION}}</td></tr>
-  <tr style="height:24px;"><td colspan="4"></td></tr>
-  <tr style="height:44px;"><td colspan="4" style="text-align:center; vertical-align:bottom; border-bottom:1px solid #000; font-weight:700; padding:2px 8px;">{{HEAD_NAME}}</td></tr>
-  <tr style="height:20px;"><td colspan="4" style="text-align:center; font-size:10pt; padding:2px 8px;">{{HEAD_POSITION}}</td></tr>
+  <tr style="height:20px;"><td colspan="7"></td></tr>
+  <tr style="height:20px;"><td colspan="2"></td><td colspan="3" style="text-align:left; padding:2px 8px;">Attested by:</td><td></td><td style="text-align:left; padding:2px 8px;">Approved by:</td></tr>
+  <tr style="height:36px;"><td colspan="2" style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{PREPARED_BY}}</td><td colspan="3" style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{SUPERVISOR_NAME}}</td><td></td><td style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{HEAD_NAME}}</td></tr>
+  <tr style="height:20px;"><td colspan="2" style="text-align:center; padding:2px 8px;">Name and Signature of Employee</td><td colspan="3" style="text-align:center; padding:2px 8px;">{{SUPERVISOR_POSITION}}</td><td></td><td style="text-align:center; padding:2px 8px;">{{HEAD_POSITION}}</td></tr>
 </table>`;
 
   const template = (await getReportTemplate()) || fallbackTemplate;
