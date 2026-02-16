@@ -313,8 +313,25 @@ function applyTheme(theme) {
     if (themeToggleBtn) themeToggleBtn.textContent = dark ? '☀️ Light mode' : '🌙 Dark mode';
 }
 
+function safeLocalStorageGet(key, fallback = '') {
+    try {
+        const value = window.localStorage.getItem(key);
+        return value ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function safeLocalStorageSet(key, value) {
+    try {
+        window.localStorage.setItem(key, value);
+    } catch {
+        // ignore storage write failures (private mode / blocked storage)
+    }
+}
+
 function initTheme() {
-    const savedTheme = window.localStorage.getItem('ncdb-theme');
+    const savedTheme = safeLocalStorageGet('ncdb-theme');
     const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     applyTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
 }
@@ -344,13 +361,13 @@ function latestActivityTimestamp() {
 
 function markActivitiesRead() {
     const latest = latestActivityTimestamp();
-    window.localStorage.setItem(activityReadKey(), latest || new Date().toISOString());
+    safeLocalStorageSet(activityReadKey(), latest || new Date().toISOString());
     updateUnreadBadge();
 }
 
 function updateUnreadBadge() {
     if (!activityUnreadBadge) return;
-    const lastRead = window.localStorage.getItem(activityReadKey()) || '';
+    const lastRead = safeLocalStorageGet(activityReadKey(), '');
     const unread = (state.activities || []).filter((a) => String(a.timestamp || '') > lastRead).length;
     activityUnreadBadge.hidden = unread === 0;
     activityUnreadBadge.textContent = String(unread);
@@ -369,7 +386,7 @@ function renderActivities() {
         activityTableFilter.value = tableOptions.some(([id]) => id === cur) ? cur : '';
     }
 
-    const lastRead = window.localStorage.getItem(activityReadKey()) || '';
+    const lastRead = safeLocalStorageGet(activityReadKey(), '');
     const items = [...state.activities]
         .filter((a) => !tableFilter || a.tableId === tableFilter)
         .filter((a) => !typeFilter || String(a.action || '') === typeFilter)
@@ -793,7 +810,7 @@ if (themeToggleBtn) themeToggleBtn.addEventListener('click', () => {
     const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
     const next = current === 'dark' ? 'light' : 'dark';
     applyTheme(next);
-    window.localStorage.setItem('ncdb-theme', next);
+    safeLocalStorageSet('ncdb-theme', next);
 });
 
 if (openCreateTableModalBtn) openCreateTableModalBtn.addEventListener('click', () => openTableModal());

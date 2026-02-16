@@ -233,16 +233,32 @@ $launchableProjects = count(array_filter($projectItems, static fn(array $item): 
 
   const orderKey='main-project-order-v4', tagsKey='main-project-tags-v4', metaKey='main-project-meta-v4';
   const items=[...list.querySelectorAll('.project-item')];
-  let tags=JSON.parse(localStorage.getItem(tagsKey)||'[]');
-  let meta=JSON.parse(localStorage.getItem(metaKey)||'{}');
-  let order=JSON.parse(localStorage.getItem(orderKey)||'[]');
+  function parseStoredJson(key, fallback){
+    try {
+      const raw=localStorage.getItem(key);
+      if(!raw) return fallback;
+      const parsed=JSON.parse(raw);
+      return parsed ?? fallback;
+    } catch {
+      try { localStorage.removeItem(key); } catch {}
+      return fallback;
+    }
+  }
+
+  function safeSetStoredJson(key, value){
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+  }
+
+  let tags=parseStoredJson(tagsKey,[]);
+  let meta=parseStoredJson(metaKey,{});
+  let order=parseStoredJson(orderKey,[]);
   let editingProject='';
 
   tags=Array.isArray(tags)?tags:[];
   const ensureMeta=(k)=>{ if(!meta[k]) meta[k]={name:k, tagIds:[]}; if(!Array.isArray(meta[k].tagIds)) meta[k].tagIds=[]; if(!meta[k].name) meta[k].name=k; };
   for(const li of items) ensureMeta(li.dataset.project);
 
-  function save(){ localStorage.setItem(tagsKey, JSON.stringify(tags)); localStorage.setItem(metaKey, JSON.stringify(meta)); localStorage.setItem(orderKey, JSON.stringify(order)); }
+  function save(){ safeSetStoredJson(tagsKey,tags); safeSetStoredJson(metaKey,meta); safeSetStoredJson(orderKey,order); }
   function tagById(id){ return tags.find(t=>t.id===id) || null; }
 
   function renderTagFilter(){
