@@ -234,14 +234,22 @@ function buildRowsHtml(filteredRecords) {
       if (!group.rows.length) continue;
       group.rows.forEach((item, idx) => {
         const cells = [];
+        const isFirstDayRow = dayRowIndex === 0;
+        const isLastDayRow = dayRowIndex === totalRows - 1;
+        const topBorder = isFirstDayRow ? 'border-top:2px solid #000;' : '';
+        const bottomBorder = isLastDayRow ? 'border-bottom:2px solid #000;' : '';
+
         if (idx === 0) {
-          cells.push(`<td colspan="2" rowspan="${group.rows.length}" style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle;">${group.label}</td>`);
+          cells.push(`<td colspan="2" rowspan="${group.rows.length}" style="border:1px solid #000; ${topBorder}${bottomBorder} padding:4px 6px; text-align:center; vertical-align:middle;">${group.label}</td>`);
         }
-        cells.push(`<td colspan="3" style="border:1px solid #000; padding:4px 6px; vertical-align:top; line-height:1.25;">${esc(item.text || '-')}</td>`);
-        cells.push(`<td style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle;">${group.includePages ? esc(item.pages || '-') : '-'}</td>`);
-        if (dayRowIndex === 0) {
-          cells.push(`<td rowspan="${totalRows}" style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle;">${esc(dateLabel)}</td>`);
+
+        cells.push(`<td colspan="3" style="border:1px solid #000; ${topBorder}${bottomBorder} padding:4px 6px; vertical-align:top; line-height:1.25;">${esc(item.text || '-')}</td>`);
+        cells.push(`<td style="border:1px solid #000; ${topBorder}${bottomBorder} padding:4px 6px; text-align:center; vertical-align:middle;">${group.includePages ? esc(item.pages || '-') : '-'}</td>`);
+
+        if (isFirstDayRow) {
+          cells.push(`<td rowspan="${totalRows}" style="border:1px solid #000; border-top:2px solid #000; border-bottom:2px solid #000; padding:4px 6px; text-align:center; vertical-align:middle;">${esc(dateLabel)}</td>`);
         }
+
         rows.push(`<tr>${cells.join('')}</tr>`);
         dayRowIndex += 1;
       });
@@ -267,7 +275,7 @@ async function buildExcelHtml(filteredRecords) {
   const rowsHtml = buildRowsHtml(filteredRecords);
 
   const fallbackTemplate = `
-<table style="border-collapse:collapse; table-layout:fixed; width:1140px; font-family:Calibri, Arial, sans-serif; font-size:11pt; color:#000; border:2px solid #000;">
+<table style="border-collapse:collapse; table-layout:fixed; width:1140px; font-family:Calibri, Arial, sans-serif; font-size:11pt; color:#000;">
   <colgroup>
     <col style="width:150px;"><col style="width:150px;"><col style="width:130px;"><col style="width:240px;"><col style="width:130px;"><col style="width:50px;"><col style="width:290px;">
   </colgroup>
@@ -281,7 +289,7 @@ async function buildExcelHtml(filteredRecords) {
   <tr style="height:20px;"><td colspan="7"></td></tr>
   <tr style="height:20px;"><td colspan="2"></td><td></td><td style="text-align:left; padding:2px 8px;">Attested by:</td><td></td><td></td><td style="text-align:left; padding:2px 8px;">Approved by:</td></tr>
   <tr style="height:36px;"><td colspan="2" style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{PREPARED_BY}}</td><td></td><td style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{SUPERVISOR_NAME}}</td><td></td><td></td><td style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{HEAD_NAME}}</td></tr>
-  <tr style="height:20px;"><td colspan="2" style="text-align:center; padding:2px 8px;">Name and Signature of Employee</td><td></td><td style="text-align:center; padding:2px 8px;">{{SUPERVISOR_POSITION}}</td><td></td><td></td><td style="text-align:center; padding:2px 8px;">{{HEAD_POSITION}}</td></tr>
+  <tr style="height:20px;"><td colspan="2" style="text-align:center; vertical-align:middle; padding:2px 8px;">Name and Signature of Employee</td><td></td><td style="text-align:center; vertical-align:middle; padding:2px 8px;">{{SUPERVISOR_POSITION}}</td><td></td><td></td><td style="text-align:center; vertical-align:middle; padding:2px 8px;">{{HEAD_POSITION}}</td></tr>
 </table>`;
 
   const template = (await getReportTemplate()) || fallbackTemplate;
