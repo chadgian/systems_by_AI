@@ -97,6 +97,34 @@
             </table>
         </div>
     </section>
+
+
+    <section class="panel report-panel" aria-live="polite">
+        <p class="muted step-hint">Build a valid report file format before downloading.</p>
+        <h2>4) Accomplishment report template</h2>
+        <div class="report-grid">
+            <label>Report title
+                <input id="reportTitleInput" type="text" placeholder="Monthly Accomplishment Report">
+            </label>
+            <label>Reporting period
+                <input id="reportPeriodInput" type="text" placeholder="e.g., January 2026">
+            </label>
+            <label>Prepared by
+                <input id="preparedByInput" type="text" placeholder="Your name">
+            </label>
+            <label>Approved by
+                <input id="approvedByInput" type="text" placeholder="Supervisor name">
+            </label>
+        </div>
+        <label>Accomplishment summary
+            <textarea id="accomplishmentSummaryInput" rows="5" placeholder="Write key accomplishments, challenges, and next steps..."></textarea>
+        </label>
+        <div class="toolbar" role="group" aria-label="Report actions">
+            <button type="button" id="downloadHtmlReportBtn" class="primary">Download report (.html)</button>
+            <button type="button" id="downloadJsonReportBtn">Download report data (.json)</button>
+        </div>
+        <p id="reportStatus" class="status-text">Fill the template and scan files before downloading.</p>
+    </section>
 </main>
 
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

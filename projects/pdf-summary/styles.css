@@ -281,3 +281,29 @@ input:focus-visible {
     margin: 0 0 .7rem;
     font-size: .93rem;
 }
+
+
+.report-panel label {
+    display: grid;
+    gap: .35rem;
+    color: var(--text);
+    font-weight: 600;
+    margin-top: .7rem;
+}
+
+.report-grid {
+    display: grid;
+    gap: .75rem;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.report-panel textarea,
+.report-panel input[type="text"] {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .55rem;
+    background: #fff;
+    font: inherit;
+    color: var(--text);
+}

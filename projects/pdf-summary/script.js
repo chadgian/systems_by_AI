@@ -22,6 +22,15 @@ const selectedPagesEl = document.getElementById('selectedPages');
 const selectedSizeEl = document.getElementById('selectedSize');
 const selectedCountLabel = document.getElementById('selectedCountLabel');
 
+const reportTitleInput = document.getElementById('reportTitleInput');
+const reportPeriodInput = document.getElementById('reportPeriodInput');
+const preparedByInput = document.getElementById('preparedByInput');
+const approvedByInput = document.getElementById('approvedByInput');
+const accomplishmentSummaryInput = document.getElementById('accomplishmentSummaryInput');
+const reportStatus = document.getElementById('reportStatus');
+const downloadHtmlReportBtn = document.getElementById('downloadHtmlReportBtn');
+const downloadJsonReportBtn = document.getElementById('downloadJsonReportBtn');
+
 let folderFiles = [];
 let extraFiles = [];
 let scannedRows = [];
@@ -235,6 +244,138 @@ function escapeHtml(value) {
         .replaceAll("'", '&#39;');
 }
 
+
+function selectedRows() {
+    return scannedRows.filter(row => row.include);
+}
+
+function reportPayload() {
+    const selected = selectedRows();
+    const selectedPages = selected.reduce((sum, row) => sum + row.pages, 0);
+    const selectedSize = selected.reduce((sum, row) => sum + row.size, 0);
+
+    return {
+        title: (reportTitleInput?.value || 'Accomplishment Report').trim() || 'Accomplishment Report',
+        period: (reportPeriodInput?.value || '').trim(),
+        preparedBy: (preparedByInput?.value || '').trim(),
+        approvedBy: (approvedByInput?.value || '').trim(),
+        summary: (accomplishmentSummaryInput?.value || '').trim(),
+        generatedAt: new Date().toISOString(),
+        metrics: {
+            allFiles: scannedRows.length,
+            selectedFiles: selected.length,
+            selectedPages,
+            selectedSizeBytes: selectedSize,
+        },
+        files: selected.map((row) => ({
+            file: row.name,
+            source: row.source,
+            pages: row.pages,
+            sizeBytes: row.size,
+            date: row.dateLabel,
+            path: row.path,
+        })),
+    };
+}
+
+function asSafeFilename(value) {
+    const clean = String(value || 'accomplishment-report')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+    return clean || 'accomplishment-report';
+}
+
+function downloadTextFile(filename, content, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
+function buildHtmlReport(payload) {
+    const rows = payload.files.map((file, idx) => `
+        <tr>
+            <td>${idx + 1}</td>
+            <td>${escapeHtml(file.file)}</td>
+            <td>${escapeHtml(file.source)}</td>
+            <td>${file.pages}</td>
+            <td>${formatKB(file.sizeBytes)}</td>
+            <td>${escapeHtml(file.path)}</td>
+        </tr>
+    `).join('');
+
+    return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escapeHtml(payload.title)}</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;color:#1f2937}
+h1{margin:.1rem 0 .6rem} .muted{color:#4b5563}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:14px 0}
+.card{border:1px solid #d1d5db;border-radius:10px;padding:10px;background:#f8fafc}
+table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d1d5db;padding:8px;text-align:left}
+th{background:#f3f4f6}
+pre{white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:10px;border-radius:8px}
+</style>
+</head>
+<body>
+<h1>${escapeHtml(payload.title)}</h1>
+<p class="muted">Generated: ${escapeHtml(new Date(payload.generatedAt).toLocaleString())}</p>
+<div class="grid">
+<div class="card"><strong>Period</strong><div>${escapeHtml(payload.period || '—')}</div></div>
+<div class="card"><strong>Prepared by</strong><div>${escapeHtml(payload.preparedBy || '—')}</div></div>
+<div class="card"><strong>Approved by</strong><div>${escapeHtml(payload.approvedBy || '—')}</div></div>
+</div>
+<div class="grid">
+<div class="card"><strong>Selected files</strong><div>${payload.metrics.selectedFiles}</div></div>
+<div class="card"><strong>Selected pages</strong><div>${payload.metrics.selectedPages}</div></div>
+<div class="card"><strong>Selected size</strong><div>${formatKB(payload.metrics.selectedSizeBytes)}</div></div>
+</div>
+<h2>Accomplishment Summary</h2>
+<pre>${escapeHtml(payload.summary || 'No summary provided.')}</pre>
+<h2>Evidence files</h2>
+<table>
+<thead><tr><th>#</th><th>File</th><th>Source</th><th>Pages</th><th>Size</th><th>Path</th></tr></thead>
+<tbody>${rows || '<tr><td colspan="6">No selected files.</td></tr>'}</tbody>
+</table>
+</body>
+</html>`;
+}
+
+function downloadHtmlReport() {
+    const selected = selectedRows();
+    if (!selected.length) {
+        if (reportStatus) reportStatus.textContent = 'No selected files. Scan and include at least one file before downloading.';
+        return;
+    }
+
+    const payload = reportPayload();
+    const filename = `${asSafeFilename(payload.title)}.html`;
+    downloadTextFile(filename, buildHtmlReport(payload), 'text/html;charset=utf-8');
+    if (reportStatus) reportStatus.textContent = `Downloaded ${filename} (HTML).`;
+}
+
+function downloadJsonReport() {
+    const selected = selectedRows();
+    if (!selected.length) {
+        if (reportStatus) reportStatus.textContent = 'No selected files. Scan and include at least one file before downloading.';
+        return;
+    }
+
+    const payload = reportPayload();
+    const filename = `${asSafeFilename(payload.title)}.json`;
+    downloadTextFile(filename, JSON.stringify(payload, null, 2), 'application/json;charset=utf-8');
+    if (reportStatus) reportStatus.textContent = `Downloaded ${filename} (JSON).`;
+}
+
 folderInput.addEventListener('change', () => {
     folderFiles = toPdfFiles(folderInput.files);
     refreshSelectionPreview();
@@ -326,6 +467,9 @@ resetBtn.addEventListener('click', () => {
     refreshSelectionPreview();
     invalidateScan('Selections reset. Choose a new folder and/or extra files.');
 });
+
+downloadHtmlReportBtn?.addEventListener('click', downloadHtmlReport);
+downloadJsonReportBtn?.addEventListener('click', downloadJsonReport);
 
 refreshSelectionPreview();
 updateMetrics();
