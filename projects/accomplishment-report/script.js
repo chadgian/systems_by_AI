@@ -39,6 +39,16 @@ const rangeFrom = document.getElementById('rangeFrom');
 const rangeTo = document.getElementById('rangeTo');
 const exportBtn = document.getElementById('exportBtn');
 
+const openTemplateGuideBtn = document.getElementById('openTemplateGuideBtn');
+const templateGuideModal = document.getElementById('templateGuideModal');
+const uploadTemplateBtn = document.getElementById('uploadTemplateBtn');
+const uploadTemplateInput = document.getElementById('uploadTemplateInput');
+const resetTemplateBtn = document.getElementById('resetTemplateBtn');
+const templateStatus = document.getElementById('templateStatus');
+
+const templateStorageKey = () => `accomplishment-template-${state.user || 'guest'}`;
+const requiredTemplateTokens = ['{{COVERED_TEXT}}', '{{OFFICE}}', '{{DIVISION}}', '{{ROWS_HTML}}', '{{PREPARED_BY}}', '{{SUPERVISOR_NAME}}', '{{SUPERVISOR_POSITION}}', '{{HEAD_NAME}}', '{{HEAD_POSITION}}'];
+
 function esc(v) {
   return String(v).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
@@ -162,13 +172,45 @@ let reportTemplateCache = null;
 
 async function getReportTemplate() {
   if (reportTemplateCache !== null) return reportTemplateCache;
+
+  const custom = window.localStorage.getItem(templateStorageKey());
+  if (custom) {
+    reportTemplateCache = custom;
+    return reportTemplateCache;
+  }
+
   try {
-    const response = await fetch('templates/accomplishment-template.html', { cache: 'no-store' });
+    const response = await fetch('templates/accomplishment-template.xls', { cache: 'no-store' });
     reportTemplateCache = response.ok ? await response.text() : '';
   } catch {
     reportTemplateCache = '';
   }
   return reportTemplateCache;
+}
+
+
+function isTemplateValid(templateText) {
+  if (!templateText || typeof templateText !== 'string') return false;
+  return requiredTemplateTokens.every((token) => templateText.includes(token));
+}
+
+function updateTemplateStatus() {
+  if (!templateStatus) return;
+  const hasCustom = Boolean(window.localStorage.getItem(templateStorageKey()));
+  templateStatus.textContent = hasCustom ? 'Using uploaded custom template' : 'Using system template';
+}
+
+async function handleTemplateUpload(file) {
+  if (!file) return;
+  const text = await file.text();
+  if (!isTemplateValid(text)) {
+    alert('Invalid template. Please use the downloadable reference and keep all required placeholders.');
+    return;
+  }
+  window.localStorage.setItem(templateStorageKey(), text);
+  reportTemplateCache = text;
+  updateTemplateStatus();
+  alert('Template uploaded successfully.');
 }
 
 function buildRowsHtml(filteredRecords) {
@@ -291,6 +333,7 @@ async function checkSession() {
     return;
   }
   state.user = me.username;
+  updateTemplateStatus();
   showApp();
   await loadWorkspace();
 }
@@ -353,5 +396,20 @@ profileForm?.addEventListener('submit', async (e) => {
 });
 
 exportBtn?.addEventListener('click', () => { exportExcel().catch(() => alert('Could not generate Excel file.')); });
+
+
+openTemplateGuideBtn?.addEventListener('click', () => templateGuideModal?.showModal());
+uploadTemplateBtn?.addEventListener('click', () => uploadTemplateInput?.click());
+uploadTemplateInput?.addEventListener('change', async () => {
+  const file = uploadTemplateInput.files && uploadTemplateInput.files[0];
+  await handleTemplateUpload(file);
+  uploadTemplateInput.value = '';
+});
+resetTemplateBtn?.addEventListener('click', () => {
+  window.localStorage.removeItem(templateStorageKey());
+  reportTemplateCache = null;
+  updateTemplateStatus();
+  alert('Reverted to system template.');
+});
 
 if (appRoot) checkSession().catch(() => showAuth());

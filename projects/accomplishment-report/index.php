@@ -327,6 +327,14 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             <label>To <input id="rangeTo" type="date"></label>
             <button id="exportBtn" type="button">Generate Excel</button>
         </div>
+        <div class="inline-actions template-tools">
+            <button id="openTemplateGuideBtn" type="button" class="ghost">Template Instructions</button>
+            <a id="downloadTemplateLink" class="ghost" href="templates/accomplishment-template.xls" download>Download Reference Template</a>
+            <button id="uploadTemplateBtn" type="button" class="ghost">Upload Template (.xls)</button>
+            <input id="uploadTemplateInput" type="file" accept=".xls,application/vnd.ms-excel,text/html" hidden>
+            <button id="resetTemplateBtn" type="button" class="ghost">Use System Template</button>
+            <span id="templateStatus" class="muted">Using system template</span>
+        </div>
     </section>
 </main>
 
@@ -363,6 +371,24 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         <menu>
             <button value="cancel" type="button" id="cancelProfileBtn" class="ghost">Cancel</button>
             <button value="default" id="saveProfileBtn">Save Profile</button>
+        </menu>
+    </form>
+</dialog>
+
+
+<dialog id="templateGuideModal" class="modal">
+    <form method="dialog" class="modal-form">
+        <h3>Template Creation Guide</h3>
+        <p class="muted">To keep export readable and compatible, follow this structure when creating your own <code>.xls</code> template:</p>
+        <ol class="template-guide-list">
+            <li>Save template as <strong>Excel 97-2003 Workbook (.xls)</strong> or HTML-based XLS.</li>
+            <li>Keep exactly 4 columns in this order: <strong>Target</strong>, <strong>List of Output Deliverables</strong>, <strong>No. of Pages</strong>, <strong>Timeline</strong>.</li>
+            <li>Include these placeholders in the file body:<br><code>{{COVERED_TEXT}}</code>, <code>{{OFFICE}}</code>, <code>{{DIVISION}}</code>, <code>{{ROWS_HTML}}</code>, <code>{{PREPARED_BY}}</code>, <code>{{SUPERVISOR_NAME}}</code>, <code>{{SUPERVISOR_POSITION}}</code>, <code>{{HEAD_NAME}}</code>, <code>{{HEAD_POSITION}}</code>.</li>
+            <li>Use fixed column widths and visible borders to match your format.</li>
+            <li>Do not remove <code>{{ROWS_HTML}}</code>; the system injects accomplishment rows there.</li>
+        </ol>
+        <menu>
+            <button value="cancel" class="ghost">Close</button>
         </menu>
     </form>
 </dialog>
