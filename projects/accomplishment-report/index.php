@@ -4,6 +4,7 @@ session_start();
 $dataDir = __DIR__ . '/data';
 $usersFile = $dataDir . '/users.json';
 $recordsFile = $dataDir . '/records.json';
+$sessionUserKey = 'accomplishment_user';
 
 function readJson(string $path, array $fallback): array {
     if (!is_file($path)) return $fallback;
@@ -39,7 +40,9 @@ if (isset($_GET['auth'])) {
     $action = (string)$_GET['auth'];
 
     if ($action === 'me') {
-        echo json_encode(['ok' => true, 'authenticated' => isset($_SESSION['user']), 'username' => $_SESSION['user'] ?? null]);
+         $activeUser = isset($_SESSION[$sessionUserKey]) ? (string)$_SESSION[$sessionUserKey] : null;
+        $isAuth = $activeUser !== null && isset($users['users'][$activeUser]);
+        echo json_encode(['ok' => true, 'authenticated' => $isAuth, 'username' => $isAuth ? $activeUser : null]);
         exit;
     }
 
@@ -63,13 +66,15 @@ if (isset($_GET['auth'])) {
         $middleInitial = trim((string)($payload['middleInitial'] ?? ''));
         $lastName = trim((string)($payload['lastName'] ?? ''));
         $suffix = trim((string)($payload['suffix'] ?? ''));
+        $displayName = trim((string)($payload['displayName'] ?? ''));
         if ($firstName === '' || $lastName === '') { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'First name and last name are required.']); exit; }
 
         $users['users'][$username] = password_hash($password, PASSWORD_DEFAULT);
         writeJson($usersFile, $users);
 
         $records['profiles'][$username] = [
-            'employeeName' => joinNameParts($prefix, $firstName, $middleInitial, $lastName, $suffix),
+            'employeeName' => $displayName !== '' ? $displayName : joinNameParts($prefix, $firstName, $middleInitial, $lastName, $suffix),
+            'displayName' => $displayName,
             'prefix' => $prefix,
             'firstName' => $firstName,
             'middleInitial' => $middleInitial,
@@ -84,7 +89,7 @@ if (isset($_GET['auth'])) {
         ];
         writeJson($recordsFile, $records);
 
-        $_SESSION['user'] = $username;
+        $_SESSION[$sessionUserKey] = $username;
         echo json_encode(['ok' => true, 'username' => $username]);
         exit;
     }
@@ -92,19 +97,13 @@ if (isset($_GET['auth'])) {
     if ($action === 'login') {
         $hash = $users['users'][$username] ?? null;
         if (!$hash || !password_verify($password, $hash)) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Invalid credentials.']); exit; }
-        $_SESSION['user'] = $username;
+        $_SESSION[$sessionUserKey] = $username;
         echo json_encode(['ok' => true, 'username' => $username]);
         exit;
     }
 
     if ($action === 'logout') {
-        $_SESSION = [];
-        if (ini_get('session.use_cookies')) {
-            $params = session_get_cookie_params();
-            setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
-        }
-        session_unset();
-        session_destroy();
+        unset($_SESSION[$sessionUserKey]);
         echo json_encode(['ok' => true]);
         exit;
     }
@@ -116,14 +115,16 @@ if (isset($_GET['auth'])) {
 
 if (isset($_GET['api']) && $_GET['api'] === '1') {
     header('Content-Type: application/json; charset=utf-8');
-    if (!isset($_SESSION['user'])) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Unauthorized']); exit; }
-    $username = (string)$_SESSION['user'];
+    if (!isset($_SESSION[$sessionUserKey])) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Unauthorized']); exit; }
+    $username = (string)$_SESSION[$sessionUserKey];
+    if (!isset($users['users'][$username])) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Unauthorized']); exit; }
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         echo json_encode([
             'ok' => true,
             'profile' => $records['profiles'][$username] ?? [
                 'employeeName' => '',
+                'displayName' => '',
                 'prefix' => '',
                 'firstName' => '',
                 'middleInitial' => '',
@@ -149,6 +150,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             $p = $payload['profile'];
             $records['profiles'][$username] = [
                 'employeeName' => trim((string)($p['employeeName'] ?? '')),
+                'displayName' => trim((string)($p['displayName'] ?? '')),
                 'prefix' => trim((string)($p['prefix'] ?? '')),
                 'firstName' => trim((string)($p['firstName'] ?? '')),
                 'middleInitial' => trim((string)($p['middleInitial'] ?? '')),
@@ -212,7 +214,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<?php $isAuthenticated = isset($_SESSION['user']); ?>
+<?php $isAuthenticated = isset($_SESSION[$sessionUserKey]) && isset($users['users'][(string)$_SESSION[$sessionUserKey]]); ?>
 <?php if (!$isAuthenticated): ?>
     <?php $authPage = (($_GET['page'] ?? 'login') === 'signup') ? 'signup' : 'login'; ?>
     <main class="layout" id="authView">
@@ -233,6 +235,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                     <h3>Create account</h3>
                     <input name="username" type="text" placeholder="Username" required>
                     <input name="password" type="password" placeholder="Password (min 6 chars)" required>
+                    <input name="displayName" type="text" placeholder="Name to display in forms" required>
                     <div class="name-grid">
                         <input name="prefix" type="text" placeholder="Prefix (optional)">
                         <input name="firstName" type="text" placeholder="First Name" required>
@@ -276,6 +279,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                 const payload = {
                     username: String(fd.get('username') || '').trim(),
                     password: String(fd.get('password') || ''),
+                    displayName: String(fd.get('displayName') || '').trim(),
                     prefix: String(fd.get('prefix') || '').trim(),
                     firstName: String(fd.get('firstName') || '').trim(),
                     middleInitial: String(fd.get('middleInitial') || '').trim(),

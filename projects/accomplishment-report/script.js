@@ -1,7 +1,7 @@
 const state = {
   user: null,
   profile: {
-    employeeName: '', office: 'CSC Regional Office VI', division: 'Policies and Systems Evaluation Division',
+    employeeName: '', displayName: '', office: 'CSC Regional Office VI', division: 'Policies and Systems Evaluation Division',
     supervisorName: '', supervisorPosition: '', headName: '', headPosition: ''
   },
   records: [],
@@ -56,7 +56,10 @@ function showAuth() {
 
 function showApp() {
   if (appRoot) appRoot.hidden = false;
-  if (currentUserLabel) currentUserLabel.textContent = state.user ? `@${state.user}` : '';
+  if (currentUserLabel) {
+    const label = state.profile.displayName || state.profile.employeeName || (state.user ? `@${state.user}` : '');
+    currentUserLabel.textContent = label;
+  }
 }
 
 function addDigitizationLine(value = '', pages = '') {
@@ -190,12 +193,12 @@ function buildRowsHtml(filteredRecords) {
       group.rows.forEach((item, idx) => {
         const cells = [];
         if (idx === 0) {
-          cells.push(`<td rowspan="${group.rows.length}" style="border:1px solid #000; padding:4px 6px; vertical-align:middle;">${group.label}</td>`);
+          cells.push(`<td rowspan="${group.rows.length}" style="border:1px solid #000; padding:4px 6px; vertical-align:middle; height:24px;">${group.label}</td>`);
         }
-        cells.push(`<td style="border:1px solid #000; padding:4px 6px; vertical-align:top;">${esc(item.text || '-')}</td>`);
-        cells.push(`<td style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle;">${group.includePages ? esc(item.pages || '-') : '-'}</td>`);
+        cells.push(`<td style="border:1px solid #000; padding:4px 6px; vertical-align:top; line-height:1.25;">${esc(item.text || '-')}</td>`);
+        cells.push(`<td style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle; height:24px;">${group.includePages ? esc(item.pages || '-') : '-'}</td>`);
         if (dayRowIndex === 0) {
-          cells.push(`<td rowspan="${totalRows}" style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle;">${esc(dateLabel)}</td>`);
+          cells.push(`<td rowspan="${totalRows}" style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle; height:24px;">${esc(dateLabel)}</td>`);
         }
         rows.push(`<tr>${cells.join('')}</tr>`);
         dayRowIndex += 1;
@@ -222,16 +225,22 @@ async function buildExcelHtml(filteredRecords) {
   const rowsHtml = buildRowsHtml(filteredRecords);
 
   const fallbackTemplate = `
-<table style="border-collapse:collapse; width:100%; font-family:Calibri, Arial, sans-serif; font-size:11pt; color:#000;">
-  <tr><td colspan="4" style="text-align:center; font-weight:700; font-size:12pt; padding:4px 0;">CIVIL SERVICE COMMISSION REGIONAL OFFICE NO. VI</td></tr>
-  <tr><td colspan="4" style="text-align:center; font-weight:700; font-size:12pt; padding:2px 0;">ACCOMPLISHMENT REPORT</td></tr>
-  <tr><td colspan="4" style="text-align:center; padding:2px 0 8px;">{{COVERED_TEXT}}</td></tr>
-  <tr><td colspan="4" style="padding:2px 6px;">Office: <strong>{{OFFICE}}</strong></td></tr>
-  <tr><td colspan="4" style="padding:2px 6px 8px;">Division/Field Office: <strong>{{DIVISION}}</strong></td></tr>
-  <tr><td style="border:2px solid #000; background:#d9e1f2; text-align:center; font-weight:700; padding:6px; width:24%;">Target</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; font-weight:700; padding:6px; width:44%;">List of Output Deliverables</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; font-weight:700; padding:6px; width:8%;">No. of Pages</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; font-weight:700; padding:6px; width:24%;">Timeline</td></tr>
+<table style="border-collapse:collapse; table-layout:fixed; width:900px; font-family:Calibri, Arial, sans-serif; font-size:11pt; color:#000;">
+  <colgroup><col style="width:274px;"><col style="width:495px;"><col style="width:49px;"><col style="width:282px;"></colgroup>
+  <tr style="height:24px;"><td colspan="4" style="text-align:center; font-weight:700; font-size:12pt;">CIVIL SERVICE COMMISSION REGIONAL OFFICE NO. VI</td></tr>
+  <tr style="height:22px;"><td colspan="4" style="text-align:center; font-weight:700; font-size:12pt;">ACCOMPLISHMENT REPORT</td></tr>
+  <tr style="height:22px;"><td colspan="4" style="text-align:center;">{{COVERED_TEXT}}</td></tr>
+  <tr style="height:24px;"><td colspan="4" style="padding:2px 8px;">Office: <strong>{{OFFICE}}</strong></td></tr>
+  <tr style="height:24px;"><td colspan="4" style="padding:2px 8px;">Division/Field Office: <strong>{{DIVISION}}</strong></td></tr>
+  <tr style="height:48px;"><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">Target</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">List of Output Deliverables</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">No. of Pages</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">Timeline</td></tr>
   {{ROWS_HTML}}
-  <tr><td colspan="2" style="padding:18px 6px 4px;">Prepared by: <strong>{{PREPARED_BY}}</strong></td><td colspan="2" style="padding:18px 6px 4px;">Immediate Supervisor: <strong>{{SUPERVISOR_NAME}}</strong> ({{SUPERVISOR_POSITION}})</td></tr>
-  <tr><td colspan="4" style="padding:4px 6px 0;">Head of Agency: <strong>{{HEAD_NAME}}</strong> ({{HEAD_POSITION}})</td></tr>
+  <tr style="height:26px;"><td colspan="4"></td></tr>
+  <tr style="height:20px;"><td colspan="2" style="padding:2px 8px;">Prepared by:</td><td colspan="2" style="padding:2px 8px;">Noted by:</td></tr>
+  <tr style="height:44px;"><td colspan="2" style="text-align:center; vertical-align:bottom; border-bottom:1px solid #000; font-weight:700; padding:2px 8px;">{{PREPARED_BY}}</td><td colspan="2" style="text-align:center; vertical-align:bottom; border-bottom:1px solid #000; font-weight:700; padding:2px 8px;">{{SUPERVISOR_NAME}}</td></tr>
+  <tr style="height:20px;"><td colspan="2" style="text-align:center; font-size:10pt; padding:2px 8px;">Employee</td><td colspan="2" style="text-align:center; font-size:10pt; padding:2px 8px;">{{SUPERVISOR_POSITION}}</td></tr>
+  <tr style="height:24px;"><td colspan="4"></td></tr>
+  <tr style="height:44px;"><td colspan="4" style="text-align:center; vertical-align:bottom; border-bottom:1px solid #000; font-weight:700; padding:2px 8px;">{{HEAD_NAME}}</td></tr>
+  <tr style="height:20px;"><td colspan="4" style="text-align:center; font-size:10pt; padding:2px 8px;">{{HEAD_POSITION}}</td></tr>
 </table>`;
 
   const template = (await getReportTemplate()) || fallbackTemplate;
@@ -271,6 +280,7 @@ async function loadWorkspace() {
   const data = await api('index.php?api=1');
   state.profile = data.profile || state.profile;
   state.records = Array.isArray(data.records) ? data.records : [];
+  showApp();
   renderRecords();
 }
 
@@ -330,6 +340,7 @@ profileForm?.addEventListener('submit', async (e) => {
   e.preventDefault();
   state.profile = {
     employeeName: employeeNameInput.value.trim(),
+    displayName: state.profile.displayName || employeeNameInput.value.trim(),
     office: officeInput.value.trim() || 'CSC Regional Office VI',
     division: divisionInput.value.trim() || 'Policies and Systems Evaluation Division',
     supervisorName: supervisorNameInput.value.trim(),
