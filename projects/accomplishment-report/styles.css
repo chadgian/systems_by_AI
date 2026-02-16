@@ -1,0 +1,28 @@
+:root { font-family: Inter, Arial, sans-serif; color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: linear-gradient(180deg, #24305E, #151f3f); color: #17203a; }
+.layout { width: min(1080px, 94vw); margin: 1.2rem auto 2rem; display: grid; gap: 1rem; }
+.card { background: #fff; border: 1px solid rgba(36,48,94,.2); border-radius: 14px; padding: 1rem; box-shadow: 0 10px 24px rgba(15, 23, 42, .15); }
+.auth-card h1 { margin-top: 0; }
+.auth-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .8rem; }
+.modal-form { display: grid; gap: .55rem; }
+input, button, select, textarea { font: inherit; border: 1px solid rgba(36,48,94,.25); border-radius: 8px; padding: .5rem .65rem; }
+button { background: #d32f2f; color: #fff; border-color: #d32f2f; cursor: pointer; }
+button.ghost, a.ghost { background: #fff; color: #24305E; border: 1px solid rgba(36,48,94,.25); text-decoration: none; display: inline-flex; align-items: center; }
+.muted { color: #526086; }
+.inline-actions { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.header-row { display: flex; justify-content: space-between; gap: .8rem; align-items: center; }
+.section-head { display: flex; justify-content: space-between; gap: .7rem; align-items: center; margin-bottom: .5rem; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.list li { border: 1px solid rgba(36,48,94,.18); border-radius: 10px; padding: .6rem .7rem; background: #f7f9ff; }
+.line-list { display: grid; gap: .45rem; }
+.line-item { display: grid; gap: .4rem; grid-template-columns: 1fr 140px auto; }
+.line-item.work { grid-template-columns: 1fr auto; }
+.modal { width: min(900px, 94vw); border: 0; border-radius: 14px; }
+.modal::backdrop { background: rgba(15,23,42,.5); }
+menu { display: flex; justify-content: flex-end; gap: .5rem; margin: .4rem 0 0; padding: 0; }
+@media (max-width: 700px) {
+  .line-item { grid-template-columns: 1fr; }
+  .line-item.work { grid-template-columns: 1fr; }
+  .header-row { flex-direction: column; align-items: flex-start; }
+}
