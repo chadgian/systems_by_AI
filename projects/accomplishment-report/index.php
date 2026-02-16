@@ -18,6 +18,16 @@ function writeJson(string $path, array $data): void {
     file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 }
 
+function joinNameParts(string $prefix, string $firstName, string $middleInitial, string $lastName, string $suffix): string {
+    $parts = [];
+    if ($prefix !== '') $parts[] = $prefix;
+    if ($firstName !== '') $parts[] = $firstName;
+    if ($middleInitial !== '') $parts[] = rtrim($middleInitial, '.') . '.';
+    if ($lastName !== '') $parts[] = $lastName;
+    if ($suffix !== '') $parts[] = $suffix;
+    return trim(implode(' ', $parts));
+}
+
 $users = readJson($usersFile, ['users' => []]);
 $records = readJson($recordsFile, ['profiles' => [], 'records' => []]);
 if (!isset($users['users']) || !is_array($users['users'])) $users['users'] = [];
@@ -47,8 +57,33 @@ if (isset($_GET['auth'])) {
         if (!preg_match('/^[A-Za-z0-9_]{3,30}$/', $username)) { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'Username must be 3-30 chars.']); exit; }
         if (strlen($password) < 6) { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'Password must be at least 6 characters.']); exit; }
         if (isset($users['users'][$username])) { http_response_code(409); echo json_encode(['ok' => false, 'message' => 'Username already exists.']); exit; }
+
+        $prefix = trim((string)($payload['prefix'] ?? ''));
+        $firstName = trim((string)($payload['firstName'] ?? ''));
+        $middleInitial = trim((string)($payload['middleInitial'] ?? ''));
+        $lastName = trim((string)($payload['lastName'] ?? ''));
+        $suffix = trim((string)($payload['suffix'] ?? ''));
+        if ($firstName === '' || $lastName === '') { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'First name and last name are required.']); exit; }
+
         $users['users'][$username] = password_hash($password, PASSWORD_DEFAULT);
         writeJson($usersFile, $users);
+
+        $records['profiles'][$username] = [
+            'employeeName' => joinNameParts($prefix, $firstName, $middleInitial, $lastName, $suffix),
+            'prefix' => $prefix,
+            'firstName' => $firstName,
+            'middleInitial' => $middleInitial,
+            'lastName' => $lastName,
+            'suffix' => $suffix,
+            'office' => 'CSC Regional Office VI',
+            'division' => 'Policies and Systems Evaluation Division',
+            'supervisorName' => '',
+            'supervisorPosition' => '',
+            'headName' => '',
+            'headPosition' => '',
+        ];
+        writeJson($recordsFile, $records);
+
         $_SESSION['user'] = $username;
         echo json_encode(['ok' => true, 'username' => $username]);
         exit;
@@ -89,6 +124,11 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             'ok' => true,
             'profile' => $records['profiles'][$username] ?? [
                 'employeeName' => '',
+                'prefix' => '',
+                'firstName' => '',
+                'middleInitial' => '',
+                'lastName' => '',
+                'suffix' => '',
                 'office' => 'CSC Regional Office VI',
                 'division' => 'Policies and Systems Evaluation Division',
                 'supervisorName' => '',
@@ -109,6 +149,11 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             $p = $payload['profile'];
             $records['profiles'][$username] = [
                 'employeeName' => trim((string)($p['employeeName'] ?? '')),
+                'prefix' => trim((string)($p['prefix'] ?? '')),
+                'firstName' => trim((string)($p['firstName'] ?? '')),
+                'middleInitial' => trim((string)($p['middleInitial'] ?? '')),
+                'lastName' => trim((string)($p['lastName'] ?? '')),
+                'suffix' => trim((string)($p['suffix'] ?? '')),
                 'office' => trim((string)($p['office'] ?? 'CSC Regional Office VI')),
                 'division' => trim((string)($p['division'] ?? 'Policies and Systems Evaluation Division')),
                 'supervisorName' => trim((string)($p['supervisorName'] ?? '')),
@@ -167,29 +212,89 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<main class="layout" id="authView" hidden>
-    <section class="card auth-card">
-        <h1>Daily Accomplishment Report Generator</h1>
-        <p class="muted">Login to keep your accomplishments private.</p>
-        <div class="auth-grid">
-            <form id="loginForm" class="modal-form">
-                <h3>Log in</h3>
-                <input name="username" type="text" placeholder="Username" required>
-                <input name="password" type="password" placeholder="Password" required>
-                <button type="submit">Log in</button>
-            </form>
-            <form id="signupForm" class="modal-form">
-                <h3>Create account</h3>
-                <input name="username" type="text" placeholder="Username" required>
-                <input name="password" type="password" placeholder="Password (min 6 chars)" required>
-                <button type="submit">Sign up</button>
-            </form>
-        </div>
-        <p id="authMessage" class="muted"></p>
-    </section>
-</main>
+<?php $isAuthenticated = isset($_SESSION['user']); ?>
+<?php if (!$isAuthenticated): ?>
+    <?php $authPage = (($_GET['page'] ?? 'login') === 'signup') ? 'signup' : 'login'; ?>
+    <main class="layout" id="authView">
+        <section class="card auth-card auth-single-wrap">
+            <h1>Daily Accomplishment Report Generator</h1>
+            <p class="muted">Login to keep your accomplishments private.</p>
 
-<main class="layout" id="appRoot" hidden>
+            <?php if ($authPage === 'login'): ?>
+                <form id="loginForm" class="modal-form auth-single">
+                    <h3>Log in</h3>
+                    <input name="username" type="text" placeholder="Username" required>
+                    <input name="password" type="password" placeholder="Password" required>
+                    <button type="submit">Log in</button>
+                    <p class="muted">No account yet? <a href="?page=signup">Create one</a></p>
+                </form>
+            <?php else: ?>
+                <form id="signupForm" class="modal-form auth-single">
+                    <h3>Create account</h3>
+                    <input name="username" type="text" placeholder="Username" required>
+                    <input name="password" type="password" placeholder="Password (min 6 chars)" required>
+                    <div class="name-grid">
+                        <input name="prefix" type="text" placeholder="Prefix (optional)">
+                        <input name="firstName" type="text" placeholder="First Name" required>
+                        <input name="middleInitial" type="text" placeholder="Middle Initial">
+                        <input name="lastName" type="text" placeholder="Last Name" required>
+                        <input name="suffix" type="text" placeholder="Suffix (optional)">
+                    </div>
+                    <button type="submit">Sign up</button>
+                    <p class="muted">Already have an account? <a href="?page=login">Log in</a></p>
+                </form>
+            <?php endif; ?>
+
+            <p id="authMessage" class="muted"></p>
+        </section>
+    </main>
+
+    <script>
+        const authMessage = document.getElementById('authMessage');
+        const loginForm = document.getElementById('loginForm');
+        const signupForm = document.getElementById('signupForm');
+
+        if (loginForm) {
+            loginForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const fd = new FormData(loginForm);
+                const response = await fetch('index.php?auth=login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: String(fd.get('username') || '').trim(), password: String(fd.get('password') || '') }),
+                });
+                const data = await response.json();
+                if (!response.ok) { authMessage.textContent = data.message || 'Login failed.'; return; }
+                window.location.href = 'index.php';
+            });
+        }
+
+        if (signupForm) {
+            signupForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const fd = new FormData(signupForm);
+                const payload = {
+                    username: String(fd.get('username') || '').trim(),
+                    password: String(fd.get('password') || ''),
+                    prefix: String(fd.get('prefix') || '').trim(),
+                    firstName: String(fd.get('firstName') || '').trim(),
+                    middleInitial: String(fd.get('middleInitial') || '').trim(),
+                    lastName: String(fd.get('lastName') || '').trim(),
+                    suffix: String(fd.get('suffix') || '').trim(),
+                };
+                const response = await fetch('index.php?auth=signup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await response.json();
+                if (!response.ok) { authMessage.textContent = data.message || 'Sign up failed.'; return; }
+                window.location.href = 'index.php';
+            });
+        }
+    </script>
+<?php else: ?>
+<main class="layout" id="appRoot">
     <header class="card header-row">
         <div>
             <h1>Accomplishment Report</h1>
@@ -259,5 +364,6 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
 </dialog>
 
 <script src="script.js"></script>
+<?php endif; ?>
 </body>
 </html>

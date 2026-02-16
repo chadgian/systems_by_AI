@@ -8,11 +8,7 @@ const state = {
   editingDate: null,
 };
 
-const authView = document.getElementById('authView');
 const appRoot = document.getElementById('appRoot');
-const authMessage = document.getElementById('authMessage');
-const loginForm = document.getElementById('loginForm');
-const signupForm = document.getElementById('signupForm');
 const logoutBtn = document.getElementById('logoutBtn');
 const currentUserLabel = document.getElementById('currentUserLabel');
 
@@ -54,16 +50,13 @@ async function api(url, opts = {}) {
   return data;
 }
 
-function showAuth(message = '') {
-  authView.hidden = false;
-  appRoot.hidden = true;
-  authMessage.textContent = message;
+function showAuth() {
+  window.location.href = 'index.php?page=login';
 }
 
 function showApp() {
-  authView.hidden = true;
-  appRoot.hidden = false;
-  currentUserLabel.textContent = state.user ? `@${state.user}` : '';
+  if (appRoot) appRoot.hidden = false;
+  if (currentUserLabel) currentUserLabel.textContent = state.user ? `@${state.user}` : '';
 }
 
 function addDigitizationLine(value = '', pages = '') {
@@ -247,32 +240,11 @@ async function checkSession() {
   await loadWorkspace();
 }
 
-loginForm?.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = new FormData(loginForm);
-  try {
-    const data = await api('index.php?auth=login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: fd.get('username'), password: fd.get('password') }) });
-    state.user = data.username;
-    showApp();
-    await loadWorkspace();
-  } catch (err) { showAuth(err.message || 'Login failed'); }
-});
-
-signupForm?.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = new FormData(signupForm);
-  try {
-    const data = await api('index.php?auth=signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: fd.get('username'), password: fd.get('password') }) });
-    state.user = data.username;
-    showApp();
-    await loadWorkspace();
-  } catch (err) { showAuth(err.message || 'Signup failed'); }
-});
 
 logoutBtn?.addEventListener('click', async () => {
   await api('index.php?auth=logout', { method: 'POST' });
   state.user = null;
-  showAuth('Logged out.');
+  showAuth();
 });
 
 openAddBtn?.addEventListener('click', () => openEntryModal());
@@ -326,4 +298,4 @@ profileForm?.addEventListener('submit', async (e) => {
 
 exportBtn?.addEventListener('click', exportExcel);
 
-checkSession().catch(() => showAuth('Session check failed.'));
+if (appRoot) checkSession().catch(() => showAuth());
