@@ -267,9 +267,9 @@ async function buildExcelHtml(filteredRecords) {
   const rowsHtml = buildRowsHtml(filteredRecords);
 
   const fallbackTemplate = `
-<table style="border-collapse:collapse; table-layout:fixed; width:1140px; font-family:Calibri, Arial, sans-serif; font-size:11pt; color:#000;">
+<table style="border-collapse:collapse; table-layout:fixed; width:1140px; font-family:Calibri, Arial, sans-serif; font-size:11pt; color:#000; border:2px solid #000;">
   <colgroup>
-    <col style="width:150px;"><col style="width:150px;"><col style="width:170px;"><col style="width:170px;"><col style="width:170px;"><col style="width:50px;"><col style="width:280px;">
+    <col style="width:150px;"><col style="width:150px;"><col style="width:130px;"><col style="width:240px;"><col style="width:130px;"><col style="width:50px;"><col style="width:290px;">
   </colgroup>
   <tr style="height:24px;"><td colspan="7" style="text-align:center; font-weight:700; font-size:12pt;">CIVIL SERVICE COMMISSION REGIONAL OFFICE NO. VI</td></tr>
   <tr style="height:22px;"><td colspan="7" style="text-align:center; font-weight:700; font-size:12pt;">ACCOMPLISHMENT REPORT</td></tr>
@@ -279,9 +279,9 @@ async function buildExcelHtml(filteredRecords) {
   <tr style="height:48px;"><td colspan="2" style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">Target</td><td colspan="3" style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">List of Output Deliverables</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">No. of Pages</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; vertical-align:middle; font-weight:700;">Timeline</td></tr>
   {{ROWS_HTML}}
   <tr style="height:20px;"><td colspan="7"></td></tr>
-  <tr style="height:20px;"><td colspan="2"></td><td colspan="3" style="text-align:left; padding:2px 8px;">Attested by:</td><td></td><td style="text-align:left; padding:2px 8px;">Approved by:</td></tr>
-  <tr style="height:36px;"><td colspan="2" style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{PREPARED_BY}}</td><td colspan="3" style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{SUPERVISOR_NAME}}</td><td></td><td style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{HEAD_NAME}}</td></tr>
-  <tr style="height:20px;"><td colspan="2" style="text-align:center; padding:2px 8px;">Name and Signature of Employee</td><td colspan="3" style="text-align:center; padding:2px 8px;">{{SUPERVISOR_POSITION}}</td><td></td><td style="text-align:center; padding:2px 8px;">{{HEAD_POSITION}}</td></tr>
+  <tr style="height:20px;"><td colspan="2"></td><td></td><td style="text-align:left; padding:2px 8px;">Attested by:</td><td></td><td></td><td style="text-align:left; padding:2px 8px;">Approved by:</td></tr>
+  <tr style="height:36px;"><td colspan="2" style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{PREPARED_BY}}</td><td></td><td style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{SUPERVISOR_NAME}}</td><td></td><td></td><td style="border-bottom:1px solid #000; text-align:center; vertical-align:bottom; font-weight:700; padding:2px 8px;">{{HEAD_NAME}}</td></tr>
+  <tr style="height:20px;"><td colspan="2" style="text-align:center; padding:2px 8px;">Name and Signature of Employee</td><td></td><td style="text-align:center; padding:2px 8px;">{{SUPERVISOR_POSITION}}</td><td></td><td></td><td style="text-align:center; padding:2px 8px;">{{HEAD_POSITION}}</td></tr>
 </table>`;
 
   const template = (await getReportTemplate()) || fallbackTemplate;
