@@ -180,7 +180,7 @@ async function getReportTemplate() {
   }
 
   try {
-    const response = await fetch('templates/accomplishment-template.xlsx', { cache: 'no-store' });
+    const response = await fetch('templates/accomplishment-template.xls', { cache: 'no-store' });
     reportTemplateCache = response.ok ? await response.text() : '';
   } catch {
     reportTemplateCache = '';
@@ -204,13 +204,13 @@ async function handleTemplateUpload(file) {
   if (!file) return;
   const text = await file.text();
   if (!isTemplateValid(text)) {
-    alert('Invalid template. Please use the downloadable reference and keep all required placeholders.');
+    alert('Invalid template. Please upload an HTML-based Excel template (.xls/.html) and keep all required placeholders.');
     return;
   }
   window.localStorage.setItem(templateStorageKey(), text);
   reportTemplateCache = text;
   updateTemplateStatus();
-  alert('Template uploaded successfully. Use an Office 2024 .xlsx-compatible template with required placeholders.');
+  alert('Template uploaded successfully.');
 }
 
 function buildRowsHtml(filteredRecords) {
@@ -307,11 +307,11 @@ async function exportExcel() {
 
   const filtered = state.records.filter((r) => r.date >= from && r.date <= to);
   const html = await buildExcelHtml(filtered);
-  const blob = new Blob([`﻿<html><head><meta charset="UTF-8"></head><body>${html}</body></html>`], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const blob = new Blob([`﻿<html><head><meta charset="UTF-8"></head><body>${html}</body></html>`], { type: 'application/vnd.ms-excel' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `accomplishment-report-${from}-to-${to}.xlsx`;
+  a.download = `accomplishment-report-${from}-to-${to}.xls`;
   document.body.appendChild(a);
   a.click();
   a.remove();
