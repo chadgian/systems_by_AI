@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "index.php", "use": "vercel-php" },
+    { "src": "projects/**/*.php", "use": "vercel-php" },
+    { "src": "projects/**/*.{css,js,png,jpg,jpeg,gif,svg,webp,ico,json}", "use": "@vercel/static" }
+  ]
+}

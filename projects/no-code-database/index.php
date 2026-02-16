@@ -121,48 +121,6 @@ function computeRelations(array $tables): array {
     return $rels;
 }
 
-function ensureSeeded(string $username, array &$db): void {
-    $hasOwned = false;
-    foreach ($db['tables'] as $t) {
-        if (($t['owner'] ?? '') === $username) { $hasOwned = true; break; }
-    }
-    if (!$hasOwned) {
-        $sample = buildSampleTables($username);
-        $db['tables'] = array_merge($db['tables'], $sample);
-        if (!isset($db['userTags'][$username])) {
-            $db['userTags'][$username] = [
-                ['id' => 'tag_ops','name' => 'Operations','color' => '#3d7bfd'],
-                ['id' => 'tag_people','name' => 'People','color' => '#8a5cff'],
-                ['id' => 'tag_crm','name' => 'CRM','color' => '#1ea97c'],
-                ['id' => 'tag_revenue','name' => 'Revenue','color' => '#ef8f24'],
-                ['id' => 'tag_execution','name' => 'Execution','color' => '#2f9cf4'],
-                ['id' => 'tag_delivery','name' => 'Delivery','color' => '#f0528d'],
-                ['id' => 'tag_product','name' => 'Product','color' => '#5a67d8'],
-                ['id' => 'tag_roadmap','name' => 'Roadmap','color' => '#00a3a3'],
-            ];
-        }
-        if (isset($payload['tags']) && is_array($payload['tags'])) {
-            $db['userTags'][$username] = array_values(array_filter(array_map(function ($t) {
-                if (!is_array($t)) return null;
-                $id = trim((string)($t['id'] ?? ''));
-                $name = trim((string)($t['name'] ?? ''));
-                $color = trim((string)($t['color'] ?? '#4f7cff'));
-                if ($id === '' || $name === '') return null;
-                return ['id' => $id, 'name' => $name, 'color' => $color];
-            }, $payload['tags'])));
-            $validIds = array_column($db['userTags'][$username], 'id');
-            $db['tables'] = array_map(function ($table) use ($validIds) {
-                if (!isset($table['tagIds']) || !is_array($table['tagIds'])) return $table;
-                $table['tagIds'] = array_values(array_filter($table['tagIds'], fn($id) => in_array($id, $validIds, true)));
-                return $table;
-            }, $db['tables']);
-        }
-
-        $db['relations'] = computeRelations($db['tables']);
-        $db['updated_at'] = date('c');
-    }
-}
-
 function ensureDemoUsersAndData(array &$users, array &$db, string $usersFile, string $dbFile): void {
     $demoUsers = [
         'demo_alice' => 'demo1234',
@@ -222,6 +180,23 @@ $db = jsonRead($dbFile, ['tables' => [], 'relations' => [], 'userTags' => [], 'u
 $users = jsonRead($usersFile, ['users' => []]);
 if (!isset($users['users']) || !is_array($users['users'])) $users['users'] = [];
 if (!isset($db['userTags']) || !is_array($db['userTags'])) $db['userTags'] = [];
+if (!isset($db['activities']) || !is_array($db['activities'])) $db['activities'] = [];
+
+function appendActivity(array &$db, string $username, string $tableId, string $tableName, string $action, string $details = ''): void {
+    if (!isset($db['activities']) || !is_array($db['activities'])) $db['activities'] = [];
+    $db['activities'][] = [
+        'id' => 'act_' . bin2hex(random_bytes(5)),
+        'timestamp' => date('c'),
+        'user' => $username,
+        'tableId' => $tableId,
+        'tableName' => $tableName,
+        'action' => $action,
+        'details' => $details,
+    ];
+    if (count($db['activities']) > 3000) {
+        $db['activities'] = array_slice($db['activities'], -3000);
+    }
+}
 
 ensureDemoUsersAndData($users, $db, $usersFile, $dbFile);
 
@@ -256,7 +231,6 @@ if (isset($_GET['auth'])) {
         $users['users'][$username] = password_hash($password, PASSWORD_DEFAULT);
         jsonWrite($usersFile, $users);
         $_SESSION['user'] = $username;
-        ensureSeeded($username, $db);
         jsonWrite($dbFile, $db);
         echo json_encode(['ok' => true, 'username' => $username]);
         exit;
@@ -268,7 +242,6 @@ if (isset($_GET['auth'])) {
         $hash = $users['users'][$username] ?? null;
         if (!$hash || !password_verify($password, $hash)) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Invalid credentials.']); exit; }
         $_SESSION['user'] = $username;
-        ensureSeeded($username, $db);
         jsonWrite($dbFile, $db);
         echo json_encode(['ok' => true, 'username' => $username]);
         exit;
@@ -316,7 +289,38 @@ if (isset($_GET['share']) && $_GET['share'] === '1') {
         }
     }
 
-    $db['tables'][$idx]['sharedWith'] = $sanitized;
+    $existingShares = is_array($db['tables'][$idx]['sharedWith'] ?? null) ? $db['tables'][$idx]['sharedWith'] : [];
+    ksort($existingShares);
+    $newShares = $sanitized;
+    ksort($newShares);
+
+    if ($existingShares !== $newShares) {
+        $db['tables'][$idx]['sharedWith'] = $sanitized;
+        appendActivity($db, $username, (string)$tableId, (string)($db['tables'][$idx]['name'] ?? 'Table'), 'share_update', 'Updated sharing permissions');
+        $db['updated_at'] = date('c');
+        jsonWrite($dbFile, $db);
+    }
+
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+if (isset($_GET['activity']) && $_GET['activity'] === '1') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (!isset($_SESSION['user'])) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Unauthorized']); exit; }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); echo json_encode(['ok' => false, 'message' => 'Method not allowed']); exit; }
+    $payload = json_decode(file_get_contents('php://input') ?: '', true);
+    $username = $_SESSION['user'];
+    $tableId = trim((string)($payload['tableId'] ?? ''));
+    $action = trim((string)($payload['action'] ?? 'update'));
+    $details = trim((string)($payload['details'] ?? ''));
+    if ($tableId === '') { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'tableId required']); exit; }
+    $table = null;
+    foreach ($db['tables'] as $t) {
+        if (($t['id'] ?? '') === $tableId) { $table = $t; break; }
+    }
+    if ($table === null || !permissionFor($username, $table)) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'No access']); exit; }
+    appendActivity($db, $username, $tableId, (string)($table['name'] ?? 'Table'), $action, $details);
     $db['updated_at'] = date('c');
     jsonWrite($dbFile, $db);
     echo json_encode(['ok' => true]);
@@ -327,8 +331,6 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     header('Content-Type: application/json; charset=utf-8');
     if (!isset($_SESSION['user'])) { http_response_code(401); echo json_encode(['ok' => false, 'message' => 'Unauthorized']); exit; }
     $username = $_SESSION['user'];
-
-    ensureSeeded($username, $db);
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $visible = [];
@@ -344,8 +346,13 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         }
 
         $relations = array_values(array_filter(computeRelations($db['tables']), fn($r) => isset($visibleIds[$r['fromTableId']], $visibleIds[$r['toTableId']])));
+        $allowedTableIds = array_column($visible, 'id');
+        $activities = array_values(array_filter($db['activities'], function ($a) use ($username, $allowedTableIds) {
+            $tableId = (string)($a['tableId'] ?? '');
+            return in_array($tableId, $allowedTableIds, true) || (($a['user'] ?? '') === $username);
+        }));
         jsonWrite($dbFile, $db);
-        echo json_encode(['tables' => $visible, 'relations' => $relations, 'tags' => array_values($db['userTags'][$username] ?? []), 'updated_at' => $db['updated_at'], 'currentUser' => $username]);
+        echo json_encode(['tables' => $visible, 'relations' => $relations, 'tags' => array_values($db['userTags'][$username] ?? []), 'activities' => $activities, 'updated_at' => $db['updated_at'], 'currentUser' => $username]);
         exit;
     }
 
@@ -362,6 +369,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         $existingById = [];
         foreach ($db['tables'] as $i => $t) $existingById[$t['id']] = $i;
 
+        $tableChanges = [];
         foreach ($incoming as $table) {
             if (!is_array($table)) continue;
             $id = (string)($table['id'] ?? '');
@@ -383,18 +391,43 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                 if (!in_array($perm, ['owner', 'edit'], true)) continue;
                 $sanitized['owner'] = $existing['owner'] ?? '';
                 $sanitized['sharedWith'] = $existing['sharedWith'] ?? [];
-                $db['tables'][$idx] = $sanitized;
+
+                $existingName = (string)($existing['name'] ?? '');
+                $existingTagIds = is_array($existing['tagIds'] ?? null) ? $existing['tagIds'] : [];
+                $existingColumns = is_array($existing['columns'] ?? null) ? $existing['columns'] : [];
+                $existingRows = is_array($existing['rows'] ?? null) ? $existing['rows'] : [];
+
+                $hasChanged =
+                    $existingName !== (string)$sanitized['name'] ||
+                    $existingTagIds !== $sanitized['tagIds'] ||
+                    json_encode($existingColumns) !== json_encode($sanitized['columns']) ||
+                    json_encode($existingRows) !== json_encode($sanitized['rows']);
+
+                if ($hasChanged) {
+                    $db['tables'][$idx] = $sanitized;
+                    $details = 'name: ' . $existingName . ' → ' . (string)$sanitized['name'] . '; columns: ' . count($sanitized['columns']) . '; rows: ' . count($sanitized['rows']);
+                    $tableChanges[] = ['type' => 'update_table', 'id' => $id, 'name' => (string)$sanitized['name'], 'details' => $details];
+                }
             } else {
                 $sanitized['owner'] = $username;
                 $sanitized['sharedWith'] = [];
                 $db['tables'][] = $sanitized;
+                $details = 'columns: ' . count($sanitized['columns']) . '; rows: ' . count($sanitized['rows']);
+                $tableChanges[] = ['type' => 'create_table', 'id' => $id, 'name' => (string)$sanitized['name'], 'details' => $details];
             }
         }
 
-        $db['tables'] = array_values(array_filter($db['tables'], function ($t) use ($username, $incomingIds) {
+        $ownedBefore = array_values(array_filter($db['tables'], fn($t) => ($t['owner'] ?? '') === $username));
+
+        $db['tables'] = array_values(array_filter($db['tables'], function ($t) use ($username, $incomingIds, &$tableChanges) {
             $id = $t['id'] ?? '';
             if (($t['owner'] ?? '') !== $username) return true;
-            return isset($incomingIds[$id]);
+            $keep = isset($incomingIds[$id]);
+            if (!$keep) {
+                $details = 'deleted table with ' . count((array)($t['columns'] ?? [])) . ' columns and ' . count((array)($t['rows'] ?? [])) . ' rows';
+                $tableChanges[] = ['type' => 'delete_table', 'id' => (string)$id, 'name' => (string)($t['name'] ?? 'Table'), 'details' => $details];
+            }
+            return $keep;
         }));
 
         if (isset($payload['tags']) && is_array($payload['tags'])) {
@@ -402,7 +435,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                 if (!is_array($t)) return null;
                 $id = trim((string)($t['id'] ?? ''));
                 $name = trim((string)($t['name'] ?? ''));
-                $color = trim((string)($t['color'] ?? '#4f7cff'));
+                $color = trim((string)($t['color'] ?? '#d32f2f'));
                 if ($id === '' || $name === '') return null;
                 return ['id' => $id, 'name' => $name, 'color' => $color];
             }, $payload['tags'])));
@@ -415,6 +448,9 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         }
 
         $db['relations'] = computeRelations($db['tables']);
+        foreach ($tableChanges as $ch) {
+            appendActivity($db, $username, (string)$ch['id'], (string)$ch['name'], (string)$ch['type'], (string)($ch['details'] ?? ''));
+        }
         $db['updated_at'] = date('c');
         jsonWrite($dbFile, $db);
         echo json_encode(['ok' => true, 'updated_at' => $db['updated_at']]);
@@ -431,7 +467,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>No-Code Data Builder</title>
+    <title>Modular Database System</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -440,7 +476,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <?php $authPage = (($_GET['page'] ?? 'login') === 'signup') ? 'signup' : 'login'; ?>
     <main class="layout" id="authView">
         <section class="card auth-card">
-            <h1>No-Code Data Builder</h1>
+            <h1>Modular Database System</h1>
             <p class="muted">Please <?php echo $authPage === 'signup' ? 'create an account' : 'log in'; ?> to continue.</p>
             <p class="muted">Demo users: <code>demo_alice / demo1234</code> and <code>demo_bob / demo1234</code>.</p>
 
@@ -517,14 +553,24 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <main class="layout" id="appRoot">
         <header class="hero card">
             <div>
-                <p class="eyebrow">NO-CODE DATA BUILDER</p>
+                <p class="eyebrow">MODULAR DATABASE SYSTEM</p>
                 <h1 id="pageTitle">Your tables</h1>
                 <p id="pageSubtitle" class="muted">Start by creating or selecting a table.</p>
             </div>
             <div class="hero-actions">
                 <span class="muted" id="currentUserLabel"></span>
                 <button class="ghost" id="themeToggleBtn" type="button" aria-label="Switch to dark mode">🌙 Dark mode</button>
-                <button class="ghost" id="logoutBtn" type="button">Log out</button>
+                <a class="ghost" href="../../index.php">Home</a><button class="ghost" id="logoutBtn" type="button">Log out</button>
+                <button class="ghost" id="activityBellBtn" type="button">🔔 <span id="activityUnreadBadge" class="badge-dot" hidden>0</span></button>
+                <div class="activity-dropdown" id="activityDropdown" hidden>
+                    <div class="section-head"><h3 style="margin:0;">Database activities</h3><button class="ghost" id="closeActivityDropdownBtn" type="button">Close</button></div>
+                    <div class="inline-actions">
+                        <select id="activityTableFilter"><option value="">All tables</option></select>
+                        <select id="activityTypeFilter"><option value="">All</option><option value="create_table">Create</option><option value="update_table">Edit</option><option value="delete_table">Delete</option><option value="share_update">Share</option><option value="edit_row">Row edit</option><option value="create_row">Row create</option><option value="delete_row">Row delete</option><option value="edit_column">Column edit</option><option value="create_column">Column create</option><option value="delete_column">Column delete</option></select>
+                        <input id="activityDateFilter" type="date">
+                    </div>
+                    <ul id="activityList" class="list"></ul>
+                </div>
                 <div class="badge" id="saveState">Ready</div>
             </div>
         </header>
@@ -533,8 +579,10 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             <div class="section-head">
                 <h2>Tables</h2>
                 <div class="inline-actions">
-                    <button class="ghost" id="openTagManagerBtn">Manage tags</button>
-                    <button id="openCreateTableModalBtn">Create table</button>
+                    <button class="ghost" id="openTagManagerBtn" type="button">Manage tags</button>
+                    <button class="ghost" id="importTableHomeBtn" type="button">Import table</button>
+                    <input id="importTableHomeInput" type="file" accept="application/json,.json" hidden>
+                    <button id="openCreateTableModalBtn" type="button">Create table</button>
                 </div>
             </div>
             <div class="inline-actions">
@@ -543,19 +591,36 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                     <option value="">All tags</option>
                 </select>
             </div>
-            <ul id="tableList" class="list"></ul>
+            <div class="table-groups">
+                <section>
+                    <h3>My tables</h3>
+                    <ul id="tableListMine" class="list"></ul>
+                </section>
+                <section>
+                    <h3>Shared with me</h3>
+                    <ul id="tableListShared" class="list"></ul>
+                </section>
+            </div>
         </section>
 
+        
+
         <section class="card" id="tableView" hidden>
-            <div class="section-head">
+            <div class="section-head table-toolbar">
                 <h2 id="activeTableTitle">Table</h2>
-                <div class="inline-actions">
+                <div class="toolbar-main-actions">
                     <button class="ghost" id="backToHomeBtn">Back to tables</button>
-                    <button class="ghost" id="openShareModalBtn">Share</button>
-                    <button class="ghost" id="openColumnsModalBtn">Columns</button>
-                    <button id="openMergeModalBtn">Merge related table</button>
                     <button id="openAddRowModalBtn">Add row</button>
                 </div>
+                <details class="action-menu">
+                    <summary>Table actions</summary>
+                    <div class="action-menu-list">
+                        <button class="ghost" id="openShareModalBtn" type="button">Share</button>
+                        <button class="ghost" id="openColumnsModalBtn" type="button">Columns</button>
+                        <button class="ghost" id="exportTableBtn" type="button">Export table</button>
+                                                <button id="openMergeModalBtn" type="button">Merge related table</button>
+                    </div>
+                </details>
             </div>
 
             <div class="panel-block">
@@ -566,14 +631,15 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         </section>
     </main>
 
-    <dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><div id="tableTagChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
-    <dialog id="columnModal" class="modal"><form method="dialog" id="columnForm" class="modal-form"><h3 id="columnModalTitle">Add column</h3><input id="columnNameInput" type="text" placeholder="Column name" required><select id="columnTypeInput"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="yesno">Yes / No</option><option value="dropdown">Dropdown</option><option value="relation">Relation</option><option value="remarks">Remarks (timestamped append)</option></select><input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden><div id="relationConfig" class="row" hidden><select id="relationTableInput"></select><select id="relationColumnInput"></select></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveColumnBtn" value="default">Save</button></menu></form></dialog>
+    <dialog id="tableModal" class="modal"><form method="dialog" id="tableForm" class="modal-form"><h3 id="tableModalTitle">Create table</h3><input id="tableNameInput" type="text" placeholder="Example: Customers" required><div id="tableTagChoices" class="merge-columns"></div><menu><button type="button" id="cancelTableModalBtn" class="ghost">Cancel</button><button id="saveTableBtn" value="default">Save</button></menu></form></dialog>
+    <dialog id="columnModal" class="modal"><form method="dialog" id="columnForm" class="modal-form"><h3 id="columnModalTitle">Add column</h3><input id="columnNameInput" type="text" placeholder="Column name" required><select id="columnTypeInput"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="time">Time</option><option value="timestamp">Timestamp (auto now)</option><option value="yesno">Yes / No</option><option value="dropdown">Dropdown</option><option value="relation">Relation</option><option value="remarks">Remarks (timestamped append)</option></select><input id="dropdownOptionsInput" type="text" placeholder="Dropdown options: New, Active, Closed" hidden><div id="relationConfig" class="row" hidden><select id="relationTableInput" aria-label="Select linked table"></select><select id="relationColumnInput" aria-label="Select display column"></select></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveColumnBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="columnsPanelModal" class="modal"><form method="dialog" class="modal-form"><div class="section-head"><h3>Columns</h3><button class="ghost" id="openAddColumnModalBtn" type="button">Add column</button></div><ul id="columnList" class="list"></ul><menu><button value="cancel" class="ghost">Close</button></menu></form></dialog>
     <dialog id="rowModal" class="modal"><form method="dialog" id="rowForm" class="modal-form"><h3 id="rowModalTitle">Add row</h3><div id="rowFields"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveRowBtn" value="default">Save</button></menu></form></dialog>
     <dialog id="mergeModal" class="modal"><form method="dialog" id="mergeForm" class="modal-form"><h3>Merge related table</h3><p class="muted">Choose a relation column from this table, then choose columns from the linked table.</p><select id="mergeRelationSelect"></select><div id="mergeColumnChoices" class="merge-columns"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="applyMergeBtn" value="default">Apply merge</button></menu></form></dialog>
     <dialog id="shareModal" class="modal"><form method="dialog" id="shareForm" class="modal-form"><h3>Share table</h3><p class="muted">Choose users and permission level.</p><div id="shareUsersList" class="share-grid"></div><menu><button value="cancel" class="ghost">Cancel</button><button id="saveShareBtn" value="default">Save sharing</button></menu></form></dialog>
 
-    <dialog id="tagModal" class="modal"><form method="dialog" id="tagForm" class="modal-form"><h3>Manage tags</h3><div class="row"><input id="tagNameInput" type="text" placeholder="Tag name"><input id="tagColorInput" type="color" value="#4f7cff"><button id="addTagBtn" type="button">Add tag</button></div><div id="tagList" class="list"></div><menu><button value="cancel" class="ghost">Close</button></menu></form></dialog>
+    <dialog id="tagModal" class="modal"><form method="dialog" id="tagForm" class="modal-form"><h3>Manage tags</h3><div class="row"><input id="tagNameInput" type="text" placeholder="Tag name"><input id="tagColorInput" type="color" value="#d32f2f"><span id="tagColorPreview" class="color-preview" aria-hidden="true"></span><button id="addTagBtn" type="button">Add tag</button></div><div id="tagList" class="list"></div><menu><button type="button" id="closeTagModalBtn" class="ghost">Close</button></menu></form></dialog>
+    <dialog id="tagEditModal" class="modal"><form method="dialog" id="tagEditForm" class="modal-form"><h3>Edit tag</h3><input id="tagEditNameInput" type="text" placeholder="Tag name" required><div class="row"><input id="tagEditColorInput" type="color" value="#d32f2f"><span id="tagEditColorPreview" class="color-preview" aria-hidden="true"></span></div><menu><button type="button" id="cancelTagEditBtn" class="ghost">Cancel</button><button id="saveTagEditBtn" value="default">Save</button></menu></form></dialog>
 
     <script src="script.js"></script>
 <?php endif; ?>

@@ -1,3 +1,5 @@
+const ACTIVITY_POLL_MS = 5000;
+
 const state = {
     tables: [],
     relations: [],
@@ -9,6 +11,9 @@ const state = {
     currentUser: null,
     userDirectory: [],
     tags: [],
+    activities: [],
+    editingTagId: null,
+    tableSort: { columnId: null, direction: "asc" },
 };
 
 const authView = document.getElementById('authView');
@@ -22,10 +27,19 @@ const currentUserLabel = document.getElementById('currentUserLabel');
 const saveStateBadge = document.getElementById('saveState');
 const pageTitle = document.getElementById('pageTitle');
 const pageSubtitle = document.getElementById('pageSubtitle');
+const activityList = document.getElementById('activityList');
+const activityTableFilter = document.getElementById('activityTableFilter');
+const activityTypeFilter = document.getElementById('activityTypeFilter');
+const activityDateFilter = document.getElementById('activityDateFilter');
+const activityBellBtn = document.getElementById('activityBellBtn');
+const activityUnreadBadge = document.getElementById('activityUnreadBadge');
+const activityDropdown = document.getElementById('activityDropdown');
+const closeActivityDropdownBtn = document.getElementById('closeActivityDropdownBtn');
 
 const homeView = document.getElementById('homeView');
 const tableView = document.getElementById('tableView');
-const tableList = document.getElementById('tableList');
+const tableListMine = document.getElementById('tableListMine');
+const tableListShared = document.getElementById('tableListShared');
 const activeTableTitle = document.getElementById('activeTableTitle');
 const columnList = document.getElementById('columnList');
 const dataTable = document.getElementById('dataTable');
@@ -73,13 +87,26 @@ const openColumnsModalBtn = document.getElementById('openColumnsModalBtn');
 const openAddRowModalBtn = document.getElementById('openAddRowModalBtn');
 const openMergeModalBtn = document.getElementById('openMergeModalBtn');
 const openShareModalBtn = document.getElementById('openShareModalBtn');
+const exportTableBtn = document.getElementById('exportTableBtn');
+const importTableHomeBtn = document.getElementById('importTableHomeBtn');
+const importTableHomeInput = document.getElementById('importTableHomeInput');
 const openTagManagerBtn = document.getElementById('openTagManagerBtn');
 
 const tagModal = document.getElementById('tagModal');
+const tagForm = document.getElementById('tagForm');
 const tagList = document.getElementById('tagList');
 const tagNameInput = document.getElementById('tagNameInput');
 const tagColorInput = document.getElementById('tagColorInput');
 const addTagBtn = document.getElementById('addTagBtn');
+const closeTagModalBtn = document.getElementById('closeTagModalBtn');
+const tagColorPreview = document.getElementById('tagColorPreview');
+const tagEditModal = document.getElementById('tagEditModal');
+const tagEditForm = document.getElementById('tagEditForm');
+const tagEditNameInput = document.getElementById('tagEditNameInput');
+const tagEditColorInput = document.getElementById('tagEditColorInput');
+const tagEditColorPreview = document.getElementById('tagEditColorPreview');
+const cancelTagEditBtn = document.getElementById('cancelTagEditBtn');
+const cancelTableModalBtn = document.getElementById('cancelTableModalBtn');
 
 const uid = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 const tableById = (id) => state.tables.find((t) => t.id === id) || null;
@@ -93,6 +120,163 @@ function escapeHtml(value) {
 
 function parseOptions(raw) {
     return String(raw || '').split(',').map((p) => p.trim()).filter(Boolean);
+}
+
+function nowInCurrentTimezone() {
+    return new Date();
+}
+
+function formatLocalDateTime(dateObj = new Date()) {
+    const local = new Date(dateObj);
+    const y = local.getFullYear();
+    const m = String(local.getMonth() + 1).padStart(2, '0');
+    const d = String(local.getDate()).padStart(2, '0');
+    const hh = String(local.getHours()).padStart(2, '0');
+    const mm = String(local.getMinutes()).padStart(2, '0');
+    const ss = String(local.getSeconds()).padStart(2, '0');
+    return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+}
+
+function toggleColumnTypeConfig() {
+    if (!columnTypeInput) return;
+    const type = columnTypeInput.value;
+    if (dropdownOptionsInput) {
+        dropdownOptionsInput.hidden = type !== 'dropdown';
+        dropdownOptionsInput.disabled = type !== 'dropdown';
+        if (type !== 'dropdown') dropdownOptionsInput.value = '';
+    }
+    if (relationConfig) {
+        const isRelation = type === 'relation';
+        relationConfig.hidden = !isRelation;
+        if (relationTableInput) relationTableInput.disabled = !isRelation;
+        if (relationColumnInput) relationColumnInput.disabled = !isRelation;
+    }
+    if (type === 'relation') populateRelationConfig(relationTableInput?.value, relationColumnInput?.value);
+}
+
+function closeOpenMenusOnOutsideClick(event) {
+    document.querySelectorAll('details.action-menu[open]').forEach((menu) => {
+        if (!menu.contains(event.target)) menu.removeAttribute('open');
+    });
+}
+
+function normalizeImportedTable(payload, fallbackName = 'Imported table') {
+    if (!payload || typeof payload !== 'object') return null;
+    const name = String(payload.name || fallbackName).trim() || fallbackName;
+
+    const columns = Array.isArray(payload.columns)
+        ? payload.columns
+            .filter((col) => col && typeof col === 'object' && String(col.id || '').trim() !== '')
+            .map((col) => ({ ...col, id: String(col.id).trim(), name: String(col.name || col.id).trim() || String(col.id).trim() }))
+        : [];
+
+    const columnIds = new Set(columns.map((c) => c.id));
+
+    const rows = Array.isArray(payload.rows)
+        ? payload.rows
+            .filter((row) => row && typeof row === 'object')
+            .map((row, index) => {
+                const rawValues = row.values && typeof row.values === 'object' ? row.values : {};
+                const values = {};
+                for (const [key, value] of Object.entries(rawValues)) {
+                    if (columnIds.has(key)) values[key] = value;
+                }
+                return { id: String(row.id || uid('row_import_' + index)).trim() || uid('row'), values };
+            })
+        : [];
+
+    const tagIds = Array.isArray(payload.tagIds)
+        ? payload.tagIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+
+    return { name, columns, rows, tagIds };
+}
+
+function exportCurrentTable() {
+    const table = activeTable();
+    if (!table) return;
+
+    const exportPayload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        table: {
+            name: table.name,
+            tagIds: Array.isArray(table.tagIds) ? table.tagIds : [],
+            columns: Array.isArray(table.columns) ? table.columns : [],
+            rows: Array.isArray(table.rows) ? table.rows : [],
+        },
+    };
+
+    const fileBase = String(table.name || 'table').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'table';
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileBase}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
+async function importIntoCurrentTable(file) {
+    const table = activeTable();
+    if (!table || !file) return;
+
+    const text = await file.text();
+    let parsed = null;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        window.alert('Invalid JSON file.');
+        return;
+    }
+
+    const tablePayload = parsed && typeof parsed === 'object' && parsed.table ? parsed.table : parsed;
+    const normalized = normalizeImportedTable(tablePayload, table.name);
+    if (!normalized) {
+        window.alert('Invalid table format.');
+        return;
+    }
+
+    if (!window.confirm('Importing will replace the current table columns and rows. Continue?')) return;
+
+    table.name = normalized.name;
+    table.columns = normalized.columns;
+    table.rows = normalized.rows;
+    table.tagIds = normalized.tagIds.filter((id) => state.tags.some((tag) => tag.id === id));
+
+    render();
+    updateUnreadBadge();
+    await persist();
+}
+
+async function importTableAsNew(file) {
+    if (!file) return;
+    const text = await file.text();
+    let parsed = null;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        window.alert('Invalid JSON file.');
+        return;
+    }
+    const tablePayload = parsed && typeof parsed === 'object' && parsed.table ? parsed.table : parsed;
+    const normalized = normalizeImportedTable(tablePayload);
+    if (!normalized) return window.alert('Invalid table format.');
+
+    state.tables.push({
+        id: uid('tbl'),
+        name: normalized.name,
+        tagIds: normalized.tagIds.filter((id) => state.tags.some((tag) => tag.id === id)),
+        columns: normalized.columns,
+        rows: normalized.rows,
+        _permission: 'owner',
+        _owner: state.currentUser,
+        _sharedWith: {},
+    });
+    render();
+    await persist();
 }
 
 function contrastColor(hex) {
@@ -149,6 +333,70 @@ function getDisplayValue(table, col, raw) {
     return String(targetRow?.values?.[targetColumn?.id] ?? '');
 }
 
+function activityReadKey() { return `ncdb-activity-read-${state.currentUser || 'anon'}`; }
+
+function latestActivityTimestamp() {
+    return (state.activities || []).reduce((max, a) => {
+        const ts = String(a?.timestamp || '');
+        return ts > max ? ts : max;
+    }, '');
+}
+
+function markActivitiesRead() {
+    const latest = latestActivityTimestamp();
+    window.localStorage.setItem(activityReadKey(), latest || new Date().toISOString());
+    updateUnreadBadge();
+}
+
+function updateUnreadBadge() {
+    if (!activityUnreadBadge) return;
+    const lastRead = window.localStorage.getItem(activityReadKey()) || '';
+    const unread = (state.activities || []).filter((a) => String(a.timestamp || '') > lastRead).length;
+    activityUnreadBadge.hidden = unread === 0;
+    activityUnreadBadge.textContent = String(unread);
+}
+
+function renderActivities() {
+    if (!activityList) return;
+    const tableFilter = String(activityTableFilter?.value || '');
+    const typeFilter = String(activityTypeFilter?.value || '');
+    const dateFilter = String(activityDateFilter?.value || '');
+
+    const tableOptions = [...new Map(state.tables.map(t => [t.id, t.name])).entries()];
+    if (activityTableFilter) {
+        const cur = activityTableFilter.value;
+        activityTableFilter.innerHTML = '<option value="">All tables</option>' + tableOptions.map(([id,name]) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`).join('');
+        activityTableFilter.value = tableOptions.some(([id]) => id === cur) ? cur : '';
+    }
+
+    const lastRead = window.localStorage.getItem(activityReadKey()) || '';
+    const items = [...state.activities]
+        .filter((a) => !tableFilter || a.tableId === tableFilter)
+        .filter((a) => !typeFilter || String(a.action || '') === typeFilter)
+        .filter((a) => !dateFilter || String(a.timestamp || '').slice(0,10) === dateFilter)
+        .sort((a,b) => String(b.timestamp||'').localeCompare(String(a.timestamp||'')));
+
+    if (!items.length) {
+        activityList.innerHTML = '<li>No activities match your filters.</li>';
+        updateUnreadBadge();
+        return;
+    }
+    activityList.innerHTML = items.map((a) => {
+        const unreadClass = String(a.timestamp || '') > lastRead ? 'activity-unread' : '';
+        const actionLabel = String(a.action || 'update').replaceAll('_', ' ');
+        return `
+        <li class="${unreadClass}">
+            <div>
+                <strong>${escapeHtml(a.tableName || 'Table')}</strong>
+                <small class="muted">${escapeHtml(actionLabel)} • ${escapeHtml(new Date(a.timestamp || Date.now()).toLocaleString())}</small>
+                <div class="muted">${escapeHtml(a.user || '')}${a.details ? ` • ${escapeHtml(String(a.details).startsWith('{') ? 'Updated table data' : a.details)}` : ''}</div>
+            </div>
+        </li>
+    `;
+    }).join('');
+    updateUnreadBadge();
+}
+
 function renderTagFilter() {
     if (!tagFilterSelect) return;
     const current = tagFilterSelect.value;
@@ -169,32 +417,36 @@ function renderHome() {
         return `${table.name || ''} ${tagNames}`.toLowerCase().includes(query);
     });
 
-    if (!filtered.length) {
-        tableList.innerHTML = state.tables.length ? '<li>No matching tables found.</li>' : '<li>No tables yet. Create your first one.</li>';
-        return;
-    }
+    const mine = filtered.filter((t) => t._permission === 'owner');
+    const shared = filtered.filter((t) => t._permission !== 'owner');
 
-    tableList.innerHTML = filtered.map((table) => {
-        const access = table._permission === 'owner' ? 'Owner' : (table._permission === 'edit' ? 'Shared: edit' : 'Shared: view');
-        const tags = (table.tagIds || []).map((id) => {
-            const tag = tagById(id);
-            if (!tag) return '';
-            const color = tag.color || '#4f7cff';
-            const text = contrastColor(color);
-            return `<span class="tag-pill" style="background:${escapeHtml(color)};color:${escapeHtml(text)};border-color:${escapeHtml(color)}">${escapeHtml(tag.name)}</span>`;
+    const renderTableItems = (tables, emptyMessage) => {
+        if (!tables.length) return `<li>${emptyMessage}</li>`;
+        return tables.map((table) => {
+            const access = table._permission === 'owner' ? 'Owner' : (table._permission === 'edit' ? 'Shared: edit' : 'Shared: view');
+            const tags = (table.tagIds || []).map((id) => {
+                const tag = tagById(id);
+                if (!tag) return '';
+                const color = tag.color || '#d32f2f';
+                const text = contrastColor(color);
+                return `<span class="tag-pill" style="background:${escapeHtml(color)};color:${escapeHtml(text)};border-color:${escapeHtml(color)}">${escapeHtml(tag.name)}</span>`;
+            }).join('');
+            return `<li>
+                <div>
+                    <strong>${escapeHtml(table.name)}</strong>
+                    <small class="muted">${table.columns?.length || 0} columns • ${table.rows?.length || 0} rows • ${access} ${table._owner ? `• by ${escapeHtml(table._owner)}` : ''}</small>
+                    ${tags ? `<div class="tag-row">${tags}</div>` : ''}
+                </div>
+                <div class="inline-actions">
+                    <button data-open-table="${table.id}">Open</button>
+                    ${table._permission === 'owner' ? `<button class="ghost" data-edit-table="${table.id}">Rename</button><button class="danger" data-delete-table="${table.id}">Delete</button>` : ''}
+                </div>
+            </li>`;
         }).join('');
-        return `<li>
-            <div>
-                <strong>${escapeHtml(table.name)}</strong>
-                <small class="muted">${table.columns?.length || 0} columns • ${table.rows?.length || 0} rows • ${access} ${table._owner ? `• by ${escapeHtml(table._owner)}` : ''}</small>
-                ${tags ? `<div class="tag-row">${tags}</div>` : ''}
-            </div>
-            <div class="inline-actions">
-                <button class="ghost" data-open-table="${table.id}">Open</button>
-                ${isOwnerTable(table) ? `<button class="ghost" data-edit-table="${table.id}">Rename</button><button class="danger" data-delete-table="${table.id}">Delete</button>` : ''}
-            </div>
-        </li>`;
-    }).join('');
+    };
+
+    if (tableListMine) tableListMine.innerHTML = renderTableItems(mine, state.tables.length ? 'No matching tables in your list.' : 'No tables yet. Create your first one.');
+    if (tableListShared) tableListShared.innerHTML = renderTableItems(shared, 'No shared tables yet.');
 }
 
 function renderColumns(table) {
@@ -261,10 +513,22 @@ function renderRows(table) {
     const editable = canEditTable(table);
     const mergedCols = mergedColumnsForTable(table);
     const cols = [...table.columns, ...mergedCols];
-    const head = `<tr>${cols.map((c) => `<th>${escapeHtml(c.__label || c.name)}</th>`).join('')}<th>Actions</th></tr>`;
+    const head = `<tr>${cols.map((c) => `<th><button class="ghost table-sort-btn" type="button" data-sort-col="${escapeHtml(c.id)}">${escapeHtml(c.__label || c.name)}</button></th>`).join('')}<th>Actions</th></tr>`;
 
     const query = String(rowSearchInput?.value || "").toLowerCase().trim();
-    const filteredRows = (table.rows || []).filter((row) => rowMatchesSearch(table, row, query));
+    let filteredRows = (table.rows || []).filter((row) => rowMatchesSearch(table, row, query));
+
+    if (state.tableSort.columnId) {
+        const col = cols.find((c) => c.id === state.tableSort.columnId);
+        if (col) {
+            const factor = state.tableSort.direction === 'desc' ? -1 : 1;
+            filteredRows = [...filteredRows].sort((a, b) => {
+                const av = String(getDisplayValue(table, col, a.values?.[col.id] ?? '')).toLowerCase();
+                const bv = String(getDisplayValue(table, col, b.values?.[col.id] ?? '')).toLowerCase();
+                return av.localeCompare(bv, undefined, { numeric: true }) * factor;
+            });
+        }
+    }
 
     const body = filteredRows.length ? filteredRows.map((row) => {
         const cells = cols.map((col) => {
@@ -277,7 +541,7 @@ function renderRows(table) {
             return `<td>${renderInlineCell(table, row, col)}</td>`;
         }).join('');
 
-        return `<tr>${cells}<td class="inline-actions">${editable ? `<button class="ghost" data-move-row-up="${row.id}">↑</button><button class="ghost" data-move-row-down="${row.id}">↓</button><button class="ghost" data-edit-row="${row.id}">Edit</button><button class="danger" data-delete-row="${row.id}">Delete</button>` : '<small class="muted">View only</small>'}</td></tr>`;
+        return `<tr>${cells}<td class="inline-actions action-cell">${editable ? `<button class="ghost icon-btn" data-move-row-up="${row.id}" title="Move up">↑</button><button class="ghost icon-btn" data-move-row-down="${row.id}" title="Move down">↓</button><button class="ghost" data-edit-row="${row.id}">Edit</button><button class="danger" data-delete-row="${row.id}">Delete</button>` : '<small class="muted">View only</small>'}</td></tr>`;
     }).join('') : `<tr><td colspan="${cols.length + 1}">${(table.rows || []).length ? "No matching rows." : "No rows yet."}</td></tr>`;
 
     dataTable.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
@@ -293,6 +557,7 @@ function renderTablePage() {
     if (openAddColumnModalBtn) openAddColumnModalBtn.disabled = !canEditTable(table);
     if (openColumnsModalBtn) openColumnsModalBtn.disabled = false;
     openMergeModalBtn.disabled = !canEditTable(table);
+    if (exportTableBtn) exportTableBtn.disabled = false;
 
     renderColumns(table);
     renderRows(table);
@@ -307,6 +572,7 @@ function render() {
     pageSubtitle.textContent = isTablePage ? 'Tables are private by default. Owners can share with view/edit permission.' : 'Start by creating or selecting a table.';
 
     renderHome();
+    renderActivities();
     if (isTablePage) renderTablePage();
 }
 
@@ -326,6 +592,7 @@ async function loadWorkspace() {
     state.tables = Array.isArray(data.tables) ? data.tables : [];
     state.relations = Array.isArray(data.relations) ? data.relations : [];
     state.tags = Array.isArray(data.tags) ? data.tags : [];
+    state.activities = Array.isArray(data.activities) ? data.activities : [];
     state.currentUser = data.currentUser || state.currentUser;
     currentUserLabel.textContent = state.currentUser ? `@${state.currentUser}` : '';
 
@@ -336,6 +603,22 @@ async function loadWorkspace() {
     }
 
     render();
+}
+
+
+async function refreshActivitiesSilently() {
+    try {
+        const response = await fetch('index.php?api=1', { headers: { 'Accept': 'application/json' } });
+        if (!response.ok) return;
+        const data = await response.json();
+        state.activities = Array.isArray(data.activities) ? data.activities : state.activities;
+        if (Array.isArray(data.tables)) {
+            const nameById = new Map(data.tables.map((t) => [t.id, t.name]));
+            state.tables = state.tables.map((t) => nameById.has(t.id) ? { ...t, name: nameById.get(t.id) } : t);
+        }
+        if (activityDropdown && !activityDropdown.hidden) renderActivities();
+        else updateUnreadBadge();
+    } catch {}
 }
 
 function showAuth(message = '') {
@@ -407,10 +690,10 @@ function openColumnModal(editId = null) {
     const existing = editId ? table.columns.find((c) => c.id === editId) : null;
     columnNameInput.value = existing?.name || '';
     columnTypeInput.value = existing?.type || 'text';
-    dropdownOptionsInput.hidden = columnTypeInput.value !== 'dropdown';
-    relationConfig.hidden = columnTypeInput.value !== 'relation';
     dropdownOptionsInput.value = (existing?.options || []).join(', ');
-    populateRelationConfig(existing?.relation?.tableId || '', existing?.relation?.columnId || '');
+    if (relationTableInput) relationTableInput.value = existing?.relation?.tableId || '';
+    if (relationColumnInput) relationColumnInput.value = existing?.relation?.columnId || '';
+    toggleColumnTypeConfig();
     columnModal.showModal();
 }
 
@@ -437,7 +720,12 @@ function openRowModal(editId = null) {
         }
         if (col.type === 'remarks') return `<label>${escapeHtml(col.name)}<textarea rows="4" readonly>${escapeHtml(String(value) || 'No remarks yet.')}</textarea><small class="muted">Append-only remarks.</small><textarea name="append_${col.id}" rows="2" placeholder="New remark"></textarea></label>`;
 
-        const inputType = col.type === 'number' ? 'number' : (col.type === 'date' ? 'date' : 'text');
+        if (col.type === 'timestamp') {
+            const timestampValue = String(value || (!editId ? formatLocalDateTime(nowInCurrentTimezone()) : ''));
+            return `<label>${escapeHtml(col.name)}<input type="text" name="${col.id}" value="${escapeHtml(timestampValue)}" readonly><small class="muted">Automatically set to current local timestamp for new rows.</small></label>`;
+        }
+
+        const inputType = col.type === 'number' ? 'number' : (col.type === 'date' ? 'date' : (col.type === 'time' ? 'time' : 'text'));
         return `<label>${escapeHtml(col.name)}<input type="${inputType}" name="${col.id}" value="${escapeHtml(String(value))}"></label>`;
     }).join('');
     rowModal.showModal();
@@ -520,13 +808,16 @@ if (openColumnsModalBtn) openColumnsModalBtn.addEventListener('click', () => {
 if (openAddRowModalBtn) openAddRowModalBtn.addEventListener('click', () => openRowModal());
 if (openMergeModalBtn) openMergeModalBtn.addEventListener('click', openMergeModal);
 if (openShareModalBtn) openShareModalBtn.addEventListener('click', openShareModal);
+if (exportTableBtn) exportTableBtn.addEventListener('click', () => exportCurrentTable());
+if (importTableHomeBtn) importTableHomeBtn.addEventListener('click', () => importTableHomeInput?.click());
+if (importTableHomeInput) importTableHomeInput.addEventListener('change', async () => {
+    const file = importTableHomeInput.files && importTableHomeInput.files[0];
+    if (file) await importTableAsNew(file);
+    importTableHomeInput.value = '';
+});
 if (openTagManagerBtn) openTagManagerBtn.addEventListener('click', openTagModal);
 
-if (columnTypeInput) columnTypeInput.addEventListener('change', () => {
-    dropdownOptionsInput.hidden = columnTypeInput.value !== 'dropdown';
-    relationConfig.hidden = columnTypeInput.value !== 'relation';
-    if (columnTypeInput.value === 'relation') populateRelationConfig(relationTableInput.value, relationColumnInput.value);
-});
+if (columnTypeInput) columnTypeInput.addEventListener('change', toggleColumnTypeConfig);
 if (relationTableInput) relationTableInput.addEventListener('change', () => populateRelationConfig(relationTableInput.value));
 if (mergeRelationSelect) mergeRelationSelect.addEventListener('change', renderMergeColumnChoices);
 
@@ -555,14 +846,20 @@ if (mergeForm) mergeForm.addEventListener('submit', (event) => {
 
 if (tableForm) tableForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (event.submitter && event.submitter.id === "cancelTableModalBtn") { tableModal.close(); return; }
     const name = tableNameInput.value.trim();
     const tagIds = tableTagChoices ? Array.from(tableTagChoices.querySelectorAll('input:checked')).map((el) => el.value) : [];
     if (!name) return;
 
+    let changedTableId = '';
     if (state.editingTableId) {
         const table = tableById(state.editingTableId);
-        if (table && isOwnerTable(table)) { table.name = name; table.tagIds = tagIds; }
-    } else state.tables.push({ id: uid('tbl'), name, tagIds, columns: [], rows: [], _permission: 'owner', _owner: state.currentUser, _sharedWith: {} });
+        if (table && isOwnerTable(table)) { table.name = name; table.tagIds = tagIds; changedTableId = table.id; }
+    } else {
+        const newId = uid('tbl');
+        state.tables.push({ id: newId, name, tagIds, columns: [], rows: [], _permission: 'owner', _owner: state.currentUser, _sharedWith: {} });
+        changedTableId = newId;
+    }
 
     tableModal.close(); render(); await persist();
 });
@@ -610,6 +907,10 @@ if (rowForm) rowForm.addEventListener('submit', async (event) => {
             values[col.id] = newText ? `${previous ? `${previous}\n` : ''}[${formatTimestamp()}] ${newText}` : previous;
             continue;
         }
+        if (col.type === 'timestamp') {
+            values[col.id] = state.editingRowId ? String(formData.get(col.id) ?? existingRow?.values?.[col.id] ?? '') : formatLocalDateTime(nowInCurrentTimezone());
+            continue;
+        }
         values[col.id] = String(formData.get(col.id) ?? '');
     }
 
@@ -621,7 +922,7 @@ if (rowForm) rowForm.addEventListener('submit', async (event) => {
     rowModal.close(); render(); await persist();
 });
 
-if (tableList) tableList.addEventListener('click', async (event) => {
+if (tableListMine || tableListShared) [tableListMine, tableListShared].filter(Boolean).forEach((listEl) => listEl.addEventListener('click', async (event) => {
     const openBtn = event.target.closest('[data-open-table]');
     if (openBtn) { state.activeTableId = openBtn.dataset.openTable; state.mergeConfig = null; syncRoute(true); render(); return; }
 
@@ -634,7 +935,7 @@ if (tableList) tableList.addEventListener('click', async (event) => {
     if (!table || !isOwnerTable(table) || !window.confirm('Delete this table?')) return;
     state.tables = state.tables.filter((t) => t.id !== table.id);
     render(); await persist();
-});
+}));
 
 if (columnList) columnList.addEventListener('click', async (event) => {
     const table = activeTable();
@@ -677,6 +978,16 @@ if (dataTable) dataTable.addEventListener('change', async (event) => {
 });
 
 if (dataTable) dataTable.addEventListener('click', async (event) => {
+    const sortBtn = event.target.closest('[data-sort-col]');
+    if (sortBtn) {
+        const colId = sortBtn.dataset.sortCol;
+        if (state.tableSort.columnId === colId) state.tableSort.direction = state.tableSort.direction === 'asc' ? 'desc' : 'asc';
+        else { state.tableSort.columnId = colId; state.tableSort.direction = 'asc'; }
+        const table = activeTable();
+        if (table) renderRows(table);
+        return;
+    }
+
     const table = activeTable();
     if (!table) return;
 
@@ -730,32 +1041,46 @@ if (dataTable) dataTable.addEventListener('click', async (event) => {
 if (tableSearchInput) tableSearchInput.addEventListener('input', render);
 if (tagFilterSelect) tagFilterSelect.addEventListener('change', render);
 if (rowSearchInput) rowSearchInput.addEventListener('input', () => { if (activeTable()) renderRows(activeTable()); });
+if (activityTableFilter) activityTableFilter.addEventListener('change', renderActivities);
+if (activityTypeFilter) activityTypeFilter.addEventListener('change', renderActivities);
+if (activityDateFilter) activityDateFilter.addEventListener('change', renderActivities);
+
+function openTagEditModal(tagId) {
+    const tag = state.tags.find((t) => t.id === tagId);
+    if (!tag || !tagEditModal) return;
+    state.editingTagId = tag.id;
+    if (tagEditNameInput) tagEditNameInput.value = tag.name || '';
+    if (tagEditColorInput) tagEditColorInput.value = tag.color || '#d32f2f';
+    if (tagEditColorPreview && tagEditColorInput) tagEditColorPreview.style.background = tagEditColorInput.value;
+    tagEditModal.showModal();
+}
 
 
-if (addTagBtn) addTagBtn.addEventListener('click', async () => {
+async function addTagFromInputs() {
     const name = String(tagNameInput?.value || '').trim();
-    const color = String(tagColorInput?.value || '#4f7cff');
+    const color = String(tagColorInput?.value || '#d32f2f');
     if (!name) return;
     state.tags.push({ id: uid('tag'), name, color });
     if (tagNameInput) tagNameInput.value = '';
     renderTagManager();
     render();
     await persist();
+}
+
+if (addTagBtn) addTagBtn.addEventListener('click', async () => {
+    await addTagFromInputs();
+});
+
+if (tagForm) tagForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (event.submitter && event.submitter.id === "closeTagModalBtn") { tagModal.close(); return; }
+    await addTagFromInputs();
 });
 
 if (tagList) tagList.addEventListener('click', async (event) => {
     const editBtn = event.target.closest('[data-edit-tag]');
     if (editBtn) {
-        const tag = state.tags.find((t) => t.id === editBtn.dataset.editTag);
-        if (!tag) return;
-        const name = window.prompt('Tag name:', tag.name);
-        if (!name || !name.trim()) return;
-        tag.name = name.trim();
-        const color = window.prompt('Tag color hex:', tag.color || '#4f7cff');
-        if (color && color.trim()) tag.color = color.trim();
-        renderTagManager();
-        render();
-        await persist();
+        openTagEditModal(editBtn.dataset.editTag);
         return;
     }
 
@@ -770,6 +1095,57 @@ if (tagList) tagList.addEventListener('click', async (event) => {
     await persist();
 });
 
+if (tagEditForm) tagEditForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (event.submitter && event.submitter.id === 'cancelTagEditBtn') { tagEditModal?.close(); return; }
+    const tag = state.tags.find((t) => t.id === state.editingTagId);
+    if (!tag) return;
+    const name = String(tagEditNameInput?.value || '').trim();
+    if (!name) return;
+    tag.name = name;
+    tag.color = String(tagEditColorInput?.value || '#d32f2f');
+    tagEditModal?.close();
+    state.editingTagId = null;
+    renderTagManager();
+    render();
+    await persist();
+});
+
+
+if (closeTagModalBtn) closeTagModalBtn.addEventListener('click', () => tagModal?.close());
+if (cancelTagEditBtn) cancelTagEditBtn.addEventListener('click', () => tagEditModal?.close());
+if (cancelTableModalBtn) cancelTableModalBtn.addEventListener('click', () => tableModal?.close());
+
+if (tagColorInput) tagColorInput.addEventListener('input', () => { if (tagColorPreview) tagColorPreview.style.background = tagColorInput.value; });
+if (tagEditColorInput) tagEditColorInput.addEventListener('input', () => { if (tagEditColorPreview) tagEditColorPreview.style.background = tagEditColorInput.value; });
+if (tagColorPreview && tagColorInput) tagColorPreview.style.background = tagColorInput.value;
+if (tagEditColorPreview && tagEditColorInput) tagEditColorPreview.style.background = tagEditColorInput.value;
+
+
+if (activityBellBtn) activityBellBtn.addEventListener('click', () => {
+    if (!activityDropdown) return;
+    const isHidden = activityDropdown.hidden;
+    activityDropdown.hidden = !isHidden;
+    if (isHidden) renderActivities();
+});
+if (closeActivityDropdownBtn) closeActivityDropdownBtn.addEventListener('click', () => {
+    if (activityDropdown) activityDropdown.hidden = true;
+    markActivitiesRead();
+    renderActivities();
+});
+
+document.addEventListener('click', (event) => {
+    closeOpenMenusOnOutsideClick(event);
+
+    if (!activityDropdown || activityDropdown.hidden) return;
+    const inDropdown = activityDropdown.contains(event.target);
+    const onBell = activityBellBtn && activityBellBtn.contains(event.target);
+    if (inDropdown || onBell) return;
+    activityDropdown.hidden = true;
+    markActivitiesRead();
+    renderActivities();
+});
+
 window.addEventListener('popstate', () => {
     const url = new URL(window.location.href);
     state.activeTableId = url.searchParams.get('view') === 'table' ? url.searchParams.get('table') : null;
@@ -777,4 +1153,9 @@ window.addEventListener('popstate', () => {
 });
 
 initTheme();
-if (appRoot) { checkSession().then(loadUsersForSharing); }
+toggleColumnTypeConfig();
+if (appRoot) {
+    checkSession().then(loadUsersForSharing).then(() => {
+        setInterval(refreshActivitiesSilently, ACTIVITY_POLL_MS);
+    });
+}
