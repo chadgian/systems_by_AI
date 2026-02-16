@@ -155,63 +155,108 @@ function formatHumanDate(dateStr) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-function buildExcelHtml(filteredRecords) {
+let reportTemplateCache = null;
+
+async function getReportTemplate() {
+  if (reportTemplateCache !== null) return reportTemplateCache;
+  try {
+    const response = await fetch('templates/accomplishment-template.html', { cache: 'no-store' });
+    reportTemplateCache = response.ok ? await response.text() : '';
+  } catch {
+    reportTemplateCache = '';
+  }
+  return reportTemplateCache;
+}
+
+function buildRowsHtml(filteredRecords) {
   const rows = [];
-  for (const rec of filteredRecords) {
+  const ordered = filteredRecords.slice().sort((a, b) => a.date.localeCompare(b.date));
+
+  for (const rec of ordered) {
     const dateLabel = formatHumanDate(rec.date);
-    const dRows = rec.digitization || [];
-    const wRows = rec.workEnrichment || [];
+    const digitization = Array.isArray(rec.digitization) ? rec.digitization.filter((x) => String(x.text || '').trim()) : [];
+    const workEnrichment = Array.isArray(rec.workEnrichment) ? rec.workEnrichment.filter((x) => String(x.text || '').trim()) : [];
+    const totalRows = digitization.length + workEnrichment.length;
+    if (!totalRows) continue;
 
-    if (!dRows.length && !wRows.length) continue;
+    let dayRowIndex = 0;
+    const groups = [
+      { label: 'Digitization Project', rows: digitization, includePages: true },
+      { label: 'Work Enrichment', rows: workEnrichment, includePages: false },
+    ];
 
-    if (dRows.length) {
-      dRows.forEach((item, idx) => {
-        rows.push(`<tr>
-          <td style="border:1px solid #000; padding:6px;">Digitization Project</td>
-          <td style="border:1px solid #000; padding:6px;">${esc(item.text)}</td>
-          <td style="border:1px solid #000; padding:6px; text-align:center;">${esc(item.pages || '-')}</td>
-          <td style="border:1px solid #000; padding:6px; text-align:center;">${idx === 0 ? esc(dateLabel) : ''}</td>
-        </tr>`);
-      });
-    }
-
-    if (wRows.length) {
-      wRows.forEach((item, idx) => {
-        rows.push(`<tr>
-          <td style="border:1px solid #000; padding:6px;">Work Enrichment</td>
-          <td style="border:1px solid #000; padding:6px;">${esc(item.text)}</td>
-          <td style="border:1px solid #000; padding:6px; text-align:center;">-</td>
-          <td style="border:1px solid #000; padding:6px; text-align:center;">${idx === 0 && !dRows.length ? esc(dateLabel) : ''}</td>
-        </tr>`);
+    for (const group of groups) {
+      if (!group.rows.length) continue;
+      group.rows.forEach((item, idx) => {
+        const cells = [];
+        if (idx === 0) {
+          cells.push(`<td rowspan="${group.rows.length}" style="border:1px solid #000; padding:4px 6px; vertical-align:middle;">${group.label}</td>`);
+        }
+        cells.push(`<td style="border:1px solid #000; padding:4px 6px; vertical-align:top;">${esc(item.text || '-')}</td>`);
+        cells.push(`<td style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle;">${group.includePages ? esc(item.pages || '-') : '-'}</td>`);
+        if (dayRowIndex === 0) {
+          cells.push(`<td rowspan="${totalRows}" style="border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle;">${esc(dateLabel)}</td>`);
+        }
+        rows.push(`<tr>${cells.join('')}</tr>`);
+        dayRowIndex += 1;
       });
     }
   }
 
-  const coveredText = rangeFrom.value && rangeTo.value ? `${formatHumanDate(rangeFrom.value)} - ${formatHumanDate(rangeTo.value)}` : 'Date covered not specified';
-
-  return `
-  <table style="border-collapse:collapse; width:100%; font-family:Arial, sans-serif; font-size:12px;">
-    <tr><td colspan="4" style="text-align:center; font-weight:bold;">CIVIL SERVICE COMMISSION REGIONAL OFFICE NO. VI</td></tr>
-    <tr><td colspan="4" style="text-align:center; font-weight:bold;">ACCOMPLISHMENT REPORT</td></tr>
-    <tr><td colspan="4" style="text-align:center;">${esc(coveredText)}</td></tr>
-    <tr><td colspan="4" style="padding-top:10px;">Office: <strong>${esc(state.profile.office || '')}</strong></td></tr>
-    <tr><td colspan="4">Division/Field Office: <strong>${esc(state.profile.division || '')}</strong></td></tr>
-    <tr><td style="border:1px solid #000; text-align:center; font-weight:bold; padding:6px; width:26%;">Target</td><td style="border:1px solid #000; text-align:center; font-weight:bold; padding:6px; width:44%;">List of Output Deliverables</td><td style="border:1px solid #000; text-align:center; font-weight:bold; padding:6px; width:10%;">No. of Pages</td><td style="border:1px solid #000; text-align:center; font-weight:bold; padding:6px; width:20%;">Timeline</td></tr>
-    ${rows.join('') || '<tr><td colspan="4" style="border:1px solid #000; padding:6px; text-align:center;">No records found in selected date range.</td></tr>'}
-    <tr><td colspan="2" style="padding-top:18px;">Prepared by: <strong>${esc(state.profile.employeeName || '')}</strong></td><td colspan="2">Immediate Supervisor: <strong>${esc(state.profile.supervisorName || '')}</strong> (${esc(state.profile.supervisorPosition || '')})</td></tr>
-    <tr><td colspan="4" style="padding-top:10px;">Head of Agency: <strong>${esc(state.profile.headName || '')}</strong> (${esc(state.profile.headPosition || '')})</td></tr>
-  </table>`;
+  if (!rows.length) {
+    return '<tr><td colspan="4" style="border:1px solid #000; padding:6px; text-align:center;">No records found in selected date range.</td></tr>';
+  }
+  return rows.join('');
 }
 
-function exportExcel() {
+function applyTemplate(template, replacements) {
+  let out = template;
+  for (const [key, value] of Object.entries(replacements)) {
+    out = out.split(`{{${key}}}`).join(value);
+  }
+  return out;
+}
+
+async function buildExcelHtml(filteredRecords) {
+  const coveredText = rangeFrom.value && rangeTo.value ? `${formatHumanDate(rangeFrom.value)} - ${formatHumanDate(rangeTo.value)}` : 'Date covered not specified';
+  const rowsHtml = buildRowsHtml(filteredRecords);
+
+  const fallbackTemplate = `
+<table style="border-collapse:collapse; width:100%; font-family:Calibri, Arial, sans-serif; font-size:11pt; color:#000;">
+  <tr><td colspan="4" style="text-align:center; font-weight:700; font-size:12pt; padding:4px 0;">CIVIL SERVICE COMMISSION REGIONAL OFFICE NO. VI</td></tr>
+  <tr><td colspan="4" style="text-align:center; font-weight:700; font-size:12pt; padding:2px 0;">ACCOMPLISHMENT REPORT</td></tr>
+  <tr><td colspan="4" style="text-align:center; padding:2px 0 8px;">{{COVERED_TEXT}}</td></tr>
+  <tr><td colspan="4" style="padding:2px 6px;">Office: <strong>{{OFFICE}}</strong></td></tr>
+  <tr><td colspan="4" style="padding:2px 6px 8px;">Division/Field Office: <strong>{{DIVISION}}</strong></td></tr>
+  <tr><td style="border:2px solid #000; background:#d9e1f2; text-align:center; font-weight:700; padding:6px; width:24%;">Target</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; font-weight:700; padding:6px; width:44%;">List of Output Deliverables</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; font-weight:700; padding:6px; width:8%;">No. of Pages</td><td style="border:2px solid #000; background:#d9e1f2; text-align:center; font-weight:700; padding:6px; width:24%;">Timeline</td></tr>
+  {{ROWS_HTML}}
+  <tr><td colspan="2" style="padding:18px 6px 4px;">Prepared by: <strong>{{PREPARED_BY}}</strong></td><td colspan="2" style="padding:18px 6px 4px;">Immediate Supervisor: <strong>{{SUPERVISOR_NAME}}</strong> ({{SUPERVISOR_POSITION}})</td></tr>
+  <tr><td colspan="4" style="padding:4px 6px 0;">Head of Agency: <strong>{{HEAD_NAME}}</strong> ({{HEAD_POSITION}})</td></tr>
+</table>`;
+
+  const template = (await getReportTemplate()) || fallbackTemplate;
+  return applyTemplate(template, {
+    COVERED_TEXT: esc(coveredText),
+    OFFICE: esc(state.profile.office || ''),
+    DIVISION: esc(state.profile.division || ''),
+    ROWS_HTML: rowsHtml,
+    PREPARED_BY: esc(state.profile.employeeName || ''),
+    SUPERVISOR_NAME: esc(state.profile.supervisorName || ''),
+    SUPERVISOR_POSITION: esc(state.profile.supervisorPosition || ''),
+    HEAD_NAME: esc(state.profile.headName || ''),
+    HEAD_POSITION: esc(state.profile.headPosition || ''),
+  });
+}
+
+async function exportExcel() {
   const from = rangeFrom.value;
   const to = rangeTo.value;
   if (!from || !to) return alert('Please select date covered (From and To).');
   if (from > to) return alert('Invalid date range.');
 
   const filtered = state.records.filter((r) => r.date >= from && r.date <= to);
-  const html = buildExcelHtml(filtered);
-  const blob = new Blob([`\ufeff<html><head><meta charset="UTF-8"></head><body>${html}</body></html>`], { type: 'application/vnd.ms-excel' });
+  const html = await buildExcelHtml(filtered);
+  const blob = new Blob([`﻿<html><head><meta charset="UTF-8"></head><body>${html}</body></html>`], { type: 'application/vnd.ms-excel' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -296,6 +341,6 @@ profileForm?.addEventListener('submit', async (e) => {
   profileModal.close();
 });
 
-exportBtn?.addEventListener('click', exportExcel);
+exportBtn?.addEventListener('click', () => { exportExcel().catch(() => alert('Could not generate Excel file.')); });
 
 if (appRoot) checkSession().catch(() => showAuth());
