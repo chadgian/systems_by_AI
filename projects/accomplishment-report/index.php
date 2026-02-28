@@ -19,21 +19,39 @@ function writeJson(string $path, array $data): void {
     file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 }
 
-function joinNameParts(string $prefix, string $firstName, string $middleInitial, string $lastName, string $suffix): string {
-    $parts = [];
-    if ($prefix !== '') $parts[] = $prefix;
-    if ($firstName !== '') $parts[] = $firstName;
-    if ($middleInitial !== '') $parts[] = rtrim($middleInitial, '.') . '.';
-    if ($lastName !== '') $parts[] = $lastName;
-    if ($suffix !== '') $parts[] = $suffix;
-    return trim(implode(' ', $parts));
-}
 
 $users = readJson($usersFile, ['users' => []]);
 $records = readJson($recordsFile, ['profiles' => [], 'records' => []]);
 if (!isset($users['users']) || !is_array($users['users'])) $users['users'] = [];
 if (!isset($records['profiles']) || !is_array($records['profiles'])) $records['profiles'] = [];
 if (!isset($records['records']) || !is_array($records['records'])) $records['records'] = [];
+
+$seeded = false;
+if (!isset($users['users']['sample_user'])) {
+    $users['users']['sample_user'] = password_hash('password123', PASSWORD_DEFAULT);
+    $seeded = true;
+}
+if (!isset($records['profiles']['sample_user'])) {
+    $records['profiles']['sample_user'] = [
+        'employeeName' => 'Sample User',
+        'displayName' => 'Sample User',
+        'office' => 'CSC Regional Office VI',
+        'division' => 'Policies and Systems Evaluation Division',
+        'supervisorName' => 'Juan Dela Cruz',
+        'supervisorPosition' => 'Supervising Administrative Officer',
+        'headName' => 'Maria Santos',
+        'headPosition' => 'Regional Director',
+    ];
+    $seeded = true;
+}
+if (!isset($records['records']['sample_user']) || !is_array($records['records']['sample_user'])) {
+    $records['records']['sample_user'] = [];
+    $seeded = true;
+}
+if ($seeded) {
+    writeJson($usersFile, $users);
+    writeJson($recordsFile, $records);
+}
 
 if (isset($_GET['auth'])) {
     header('Content-Type: application/json; charset=utf-8');
@@ -61,31 +79,26 @@ if (isset($_GET['auth'])) {
         if (strlen($password) < 6) { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'Password must be at least 6 characters.']); exit; }
         if (isset($users['users'][$username])) { http_response_code(409); echo json_encode(['ok' => false, 'message' => 'Username already exists.']); exit; }
 
-        $prefix = trim((string)($payload['prefix'] ?? ''));
-        $firstName = trim((string)($payload['firstName'] ?? ''));
-        $middleInitial = trim((string)($payload['middleInitial'] ?? ''));
-        $lastName = trim((string)($payload['lastName'] ?? ''));
-        $suffix = trim((string)($payload['suffix'] ?? ''));
         $displayName = trim((string)($payload['displayName'] ?? ''));
-        if ($firstName === '' || $lastName === '') { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'First name and last name are required.']); exit; }
+        $supervisorName = trim((string)($payload['supervisorName'] ?? ''));
+        $supervisorPosition = trim((string)($payload['supervisorPosition'] ?? ''));
+        $headName = trim((string)($payload['headName'] ?? ''));
+        $headPosition = trim((string)($payload['headPosition'] ?? ''));
+        if ($displayName === '') { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'Name is required.']); exit; }
+        if ($supervisorName === '' || $supervisorPosition === '' || $headName === '' || $headPosition === '') { http_response_code(422); echo json_encode(['ok' => false, 'message' => 'Supervisor and head details are required.']); exit; }
 
         $users['users'][$username] = password_hash($password, PASSWORD_DEFAULT);
         writeJson($usersFile, $users);
 
         $records['profiles'][$username] = [
-            'employeeName' => $displayName !== '' ? $displayName : joinNameParts($prefix, $firstName, $middleInitial, $lastName, $suffix),
+            'employeeName' => $displayName,
             'displayName' => $displayName,
-            'prefix' => $prefix,
-            'firstName' => $firstName,
-            'middleInitial' => $middleInitial,
-            'lastName' => $lastName,
-            'suffix' => $suffix,
             'office' => 'CSC Regional Office VI',
             'division' => 'Policies and Systems Evaluation Division',
-            'supervisorName' => '',
-            'supervisorPosition' => '',
-            'headName' => '',
-            'headPosition' => '',
+            'supervisorName' => $supervisorName,
+            'supervisorPosition' => $supervisorPosition,
+            'headName' => $headName,
+            'headPosition' => $headPosition,
         ];
         writeJson($recordsFile, $records);
 
@@ -125,11 +138,6 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             'profile' => $records['profiles'][$username] ?? [
                 'employeeName' => '',
                 'displayName' => '',
-                'prefix' => '',
-                'firstName' => '',
-                'middleInitial' => '',
-                'lastName' => '',
-                'suffix' => '',
                 'office' => 'CSC Regional Office VI',
                 'division' => 'Policies and Systems Evaluation Division',
                 'supervisorName' => '',
@@ -151,11 +159,6 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
             $records['profiles'][$username] = [
                 'employeeName' => trim((string)($p['employeeName'] ?? '')),
                 'displayName' => trim((string)($p['displayName'] ?? '')),
-                'prefix' => trim((string)($p['prefix'] ?? '')),
-                'firstName' => trim((string)($p['firstName'] ?? '')),
-                'middleInitial' => trim((string)($p['middleInitial'] ?? '')),
-                'lastName' => trim((string)($p['lastName'] ?? '')),
-                'suffix' => trim((string)($p['suffix'] ?? '')),
                 'office' => trim((string)($p['office'] ?? 'CSC Regional Office VI')),
                 'division' => trim((string)($p['division'] ?? 'Policies and Systems Evaluation Division')),
                 'supervisorName' => trim((string)($p['supervisorName'] ?? '')),
@@ -229,20 +232,18 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                     <input name="password" type="password" placeholder="Password" required>
                     <button type="submit">Log in</button>
                     <p class="muted">No account yet? <a href="?page=signup">Create one</a></p>
+                    <p class="muted">Sample user: <code>sample_user</code> / <code>password123</code></p>
                 </form>
             <?php else: ?>
                 <form id="signupForm" class="modal-form auth-single">
                     <h3>Create account</h3>
                     <input name="username" type="text" placeholder="Username" required>
                     <input name="password" type="password" placeholder="Password (min 6 chars)" required>
-                    <input name="displayName" type="text" placeholder="Name to display in forms" required>
-                    <div class="name-grid">
-                        <input name="prefix" type="text" placeholder="Prefix (optional)">
-                        <input name="firstName" type="text" placeholder="First Name" required>
-                        <input name="middleInitial" type="text" placeholder="Middle Initial">
-                        <input name="lastName" type="text" placeholder="Last Name" required>
-                        <input name="suffix" type="text" placeholder="Suffix (optional)">
-                    </div>
+                    <input name="displayName" type="text" placeholder="Full name to display in forms" required>
+                    <input name="supervisorName" type="text" placeholder="Immediate supervisor name" required>
+                    <input name="supervisorPosition" type="text" placeholder="Immediate supervisor position" required>
+                    <input name="headName" type="text" placeholder="Head of agency name" required>
+                    <input name="headPosition" type="text" placeholder="Head of agency position" required>
                     <button type="submit">Sign up</button>
                     <p class="muted">Already have an account? <a href="?page=login">Log in</a></p>
                 </form>
@@ -280,11 +281,10 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
                     username: String(fd.get('username') || '').trim(),
                     password: String(fd.get('password') || ''),
                     displayName: String(fd.get('displayName') || '').trim(),
-                    prefix: String(fd.get('prefix') || '').trim(),
-                    firstName: String(fd.get('firstName') || '').trim(),
-                    middleInitial: String(fd.get('middleInitial') || '').trim(),
-                    lastName: String(fd.get('lastName') || '').trim(),
-                    suffix: String(fd.get('suffix') || '').trim(),
+                    supervisorName: String(fd.get('supervisorName') || '').trim(),
+                    supervisorPosition: String(fd.get('supervisorPosition') || '').trim(),
+                    headName: String(fd.get('headName') || '').trim(),
+                    headPosition: String(fd.get('headPosition') || '').trim(),
                 };
                 const response = await fetch('index.php?auth=signup', {
                     method: 'POST',
@@ -302,7 +302,7 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
     <header class="card header-row">
         <div>
             <h1>Accomplishment Report</h1>
-            <p class="muted">Encode daily outputs for Digitization Project and Work Enrichment, then export to Excel.</p>
+            <p class="muted">Encode daily outputs for Digitization Project and Work Enrichment, then export to Excel-compatible format.</p>
         </div>
         <div class="inline-actions">
             <span id="currentUserLabel" class="muted"></span>
@@ -329,9 +329,9 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         </div>
         <div class="inline-actions template-tools">
             <button id="openTemplateGuideBtn" type="button" class="ghost">Template Instructions</button>
-            <a id="downloadTemplateLink" class="ghost" href="templates/accomplishment-template.xlsx" download>Download Reference Template (.xlsx)</a>
-            <button id="uploadTemplateBtn" type="button" class="ghost">Upload Template (.xlsx)</button>
-            <input id="uploadTemplateInput" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,application/vnd.ms-excel,text/html" hidden>
+            <a id="downloadTemplateLink" class="ghost" href="templates/accomplishment-template.xls" download>Download Reference Template (.xls)</a>
+            <button id="uploadTemplateBtn" type="button" class="ghost">Upload Template (.xls/.html)</button>
+            <input id="uploadTemplateInput" type="file" accept=".xls,application/vnd.ms-excel,text/html,.html,.htm" hidden>
             <button id="resetTemplateBtn" type="button" class="ghost">Use System Template</button>
             <span id="templateStatus" class="muted">Using system template</span>
         </div>
@@ -379,10 +379,10 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
 <dialog id="templateGuideModal" class="modal">
     <form method="dialog" class="modal-form">
         <h3>Template Creation Guide</h3>
-        <p class="muted">To keep export readable and compatible, follow this structure when creating your own <code>.xlsx</code> template:</p>
+        <p class="muted">To keep export readable and compatible, follow this structure when creating your own HTML-based Excel template (<code>.xls</code> or <code>.html</code>):</p>
         <ol class="template-guide-list">
-            <li>Save template as <strong>Excel Workbook (.xlsx)</strong> for Office 2024 compatibility.</li>
-            <li>Keep exactly 4 columns in this order: <strong>Target</strong>, <strong>List of Output Deliverables</strong>, <strong>No. of Pages</strong>, <strong>Timeline</strong>.</li>
+            <li>Save template as <strong>Excel 97-2003 Workbook (.xls)</strong> or <strong>HTML</strong>. (Do not use binary <code>.xlsx</code>.)</li>
+            <li>Use 7 sheet columns with merged groups: <strong>Target</strong> spans columns A-B, <strong>List of Output Deliverables</strong> spans C-E, then <strong>No. of Pages</strong> on F and <strong>Timeline</strong> on G.</li>
             <li>Include these placeholders in the file body:<br><code>{{COVERED_TEXT}}</code>, <code>{{OFFICE}}</code>, <code>{{DIVISION}}</code>, <code>{{ROWS_HTML}}</code>, <code>{{PREPARED_BY}}</code>, <code>{{SUPERVISOR_NAME}}</code>, <code>{{SUPERVISOR_POSITION}}</code>, <code>{{HEAD_NAME}}</code>, <code>{{HEAD_POSITION}}</code>.</li>
             <li>Use fixed column widths and visible borders to match your format.</li>
             <li>Do not remove <code>{{ROWS_HTML}}</code>; the system injects accomplishment rows there.</li>
