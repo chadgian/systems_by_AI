@@ -1,0 +1,1 @@
+Run verifier after branch push substitution fix.
