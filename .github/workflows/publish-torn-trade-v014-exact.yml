@@ -1,7 +1,7 @@
 name: Publish exact Torn Trade Analyzer v0.1.4
 
 on:
-  issues:
+  pull_request:
     types: [opened]
 
 permissions:
@@ -9,13 +9,14 @@ permissions:
 
 jobs:
   publish:
-    if: github.event.issue.title == 'publish-torn-trade-v014'
+    if: github.event.pull_request.title == 'Publish Torn Trade Analyzer v0.1.4'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - name: Rebuild verified userscript
+      - name: Rebuild verified userscript on PR branch
         shell: bash
         run: |
           cat .tmp_tta_v014/chunk0.b64 .tmp_tta_v014/chunk1.b64 .tmp_tta_v014/chunk2.b64 > /tmp/tta.b64
@@ -30,4 +31,4 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add torn-trade-analyzer.user.js
           git commit -m 'Fix accordion scroll and Torn log compatibility'
-          git push
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
