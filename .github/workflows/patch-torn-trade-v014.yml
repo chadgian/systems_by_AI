@@ -27,9 +27,7 @@ jobs:
           start=next(i for i,line in enumerate(src) if line.strip()=='run: |')+1
           body=[]
           for line in src[start:]:
-              if line.startswith('          '): body.append(line[10:])
-              elif not line.strip(): body.append('')
-              else: break
+              body.append(line[10:] if line.startswith('          ') else line)
           script='\n'.join(body).replace('${{ github.event.pull_request.head.ref }}','${HEAD_BRANCH}')+'\n'
           Path('/tmp/apply-v014.sh').write_text(script)
           PY
