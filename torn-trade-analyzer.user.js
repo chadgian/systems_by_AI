@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Trade Analyzer
 // @namespace    chadgian.torn.trade.analyzer
-// @version      0.1.3
+// @version      0.1.4
 // @description  Track selected Torn items, backfill buy/sell logs, calculate FIFO realized profit, and chart profit by day/week/month. Data stays on-device.
 // @author       chadgian + ChatGPT
 // @match        https://www.torn.com/*
@@ -14,7 +14,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.1.3';
+  const VERSION = '0.1.4';
   const API_KEY = '_###PDA-APIKEY###_';
   const NS = 'tta:v1:';
   const API = 'https://api.torn.com/v2';
@@ -349,18 +349,24 @@
     const masked=state.apiKey?'••••••••••••••••':'';
     return `${header('Settings','Storage, API access & reset',true)}<div class="tta-content tta-settings">
       <div class="tta-keycard"><div class="tta-keyhead"><strong>API Key</strong><span class="tta-keystatus">${esc(status)}</span></div><div class="tta-keyinputrow"><input id="tta-api-key" type="password" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your Torn API key" value="${esc(masked)}" data-placeholder-key="${state.apiKey?'1':'0'}"><button class="tta-btn" data-act="saveApiKey">Save & test</button></div><div class="tta-keynote">Stored only in this device's local storage and sent only to Torn's official API. It is never uploaded to GitHub or sent to us. Use a custom key with <strong>User → Log</strong>; for free-item history, do not restrict away categories such as Crime success, City finds, Mission rewards, Seasonal gift, and similar reward logs.</div>${state.apiKey?'<div class="tta-settings-actions"><button class="tta-btn danger" data-act="clearApiKey">Clear saved API key</button></div>':''}</div>
-      <div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Data storage: only locally on this device.<br>Data sharing: nobody.<br>Purpose: personal statistical analysis of selected item acquisitions and sales.<br>Key storage: locally only / not shared.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong>. Torn PDA's injected key remains supported as a fallback.</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.</div><div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
+      <div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Data storage: only locally on this device.<br>Data sharing: nobody.<br>Purpose: personal statistical analysis of selected item acquisitions and sales.<br>Key storage: locally only / not shared.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong>. Torn PDA's injected key remains supported as a fallback.</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.`:''}</div><div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
   }
 
 
-  function render() {
-    const root=document.getElementById('tta-root'); if(!root)return;
-    if(!state.open){root.classList.remove('show');return;} root.classList.add('show');
-    if (!hasApiKey() && !state.tracked.length && !state.transactions.length) state.demo=true; else state.demo=false;
-    if (state.demo && !state.catalog.length) state.catalog=demoCatalog();
-    root.innerHTML=`<div class="tta-shell">${state.view==='add'?addItemHtml():state.view==='settings'?settingsHtml():dashboardHtml()}</div>${state.toast?`<div class="tta-toast">${esc(state.toast)}</div>`:''}`;
-    bind();
-  }
+  function render(options={}) {
+  const root=document.getElementById('tta-root'); if(!root)return;
+  const previousView=root.dataset.view||'';
+  const previousShell=root.querySelector('.tta-shell');
+  const preserveScroll=options.preserveScroll ?? (previousView===state.view);
+  const previousScroll=preserveScroll && previousShell ? previousShell.scrollTop : 0;
+  if(!state.open){root.classList.remove('show');return;} root.classList.add('show');
+  if (!hasApiKey() && !state.tracked.length && !state.transactions.length) state.demo=true; else state.demo=false;
+  if (state.demo && !state.catalog.length) state.catalog=demoCatalog();
+  root.innerHTML=`<div class="tta-shell">${state.view==='add'?addItemHtml():state.view==='settings'?settingsHtml():dashboardHtml()}</div>${state.toast?`<div class="tta-toast">${esc(state.toast)}</div>`:''}`;
+  root.dataset.view=state.view;
+  bind();
+  if(preserveScroll){const shell=root.querySelector('.tta-shell');if(shell)shell.scrollTop=previousScroll;}
+}
 
   function toast(msg) { state.toast=msg; render(); setTimeout(()=>{ if(state.toast===msg){state.toast='';render();}},2400); }
   function bind() {
@@ -431,17 +437,19 @@
   }
 
   function relevantLogTypes(all) {
-    const context=/(item market|bazaar|abroad|travel.*(item|goods)|shop|auction)/i;
-    const action=/\b(buy|bought|purchase|sell|sold|sale|win)\b/i;
-    const freeContext=/(crime success|organized crime success|city find|mission reward|seasonal gift|christmas town|easter egg hunt|halloween basket|job special|company special|event reward|competition reward|items? incoming|item.*received|item.*gained)/i;
-    const byId=new Map();
-    (all||[]).forEach(x=>{
-      const id=Number(x?.id),title=x?.title||'';
-      if(id && ((context.test(title) && action.test(title)) || freeContext.test(title) || KNOWN_TRANSACTION_LOGS.has(id))) byId.set(id,{...x,id});
-    });
-    KNOWN_TRANSACTION_LOGS.forEach((meta,id)=>{if(!byId.has(id))byId.set(id,{id,title:`${meta.source} ${meta.side}`});});
-    return [...byId.values()].sort((a,b)=>a.id-b.id);
-  }
+  const paidContext=/(item market|bazaar|abroad|foreign|travel|shop|auction|market)/i;
+  const paidAction=/\b(buy|bought|purchase|purchased|sell|sold|sale|listed|listing|win|won)\b/i;
+  const itemMovement=/(item|plushie|flower|drug|weapon|armor|armour|temporary).*(buy|bought|purchase|purchased|sell|sold|sale|receive|received|gain|gained|find|found|reward|loot|won|win)|(buy|bought|purchase|purchased|sell|sold|sale|receive|received|gain|gained|find|found|reward|loot|won|win).*(item|plushie|flower|drug|weapon|armor|armour|temporary)/i;
+  const freeContext=/(crime success|organized crime success|city find|mission reward|seasonal gift|christmas town|easter egg hunt|halloween basket|job special|company special|event reward|competition reward|reward|loot|items? incoming|item.*received|item.*gained|item.*found)/i;
+  const byId=new Map();
+  (all||[]).forEach(x=>{
+    const id=Number(x?.id),title=String(x?.title||'');
+    if(id && ((paidContext.test(title) && paidAction.test(title)) || itemMovement.test(title) || freeContext.test(title) || KNOWN_TRANSACTION_LOGS.has(id))) byId.set(id,{...x,id});
+  });
+  KNOWN_TRANSACTION_LOGS.forEach((meta,id)=>{if(!byId.has(id))byId.set(id,{id,title:`${meta.source} ${meta.side}`});});
+  return [...byId.values()].sort((a,b)=>a.id-b.id);
+}
+
   function classify(title) {
     title=String(title||'').toLowerCase();
     if(/\b(sell|sold|sale)\b/.test(title)) return 'sell';
@@ -459,28 +467,35 @@
   }
 
   function normalizeItems(data) {
-    data=data||{};
-    const out=[];
-    const push=(id,q=1)=>{id=Number(id);q=Number(q)||1;if(id>0&&q>0)out.push({id,qty:q});};
-    const visit=(v,defaultQty=1)=>{
-      if(v==null)return;
-      if(typeof v==='number' || (typeof v==='string' && /^\d+$/.test(v))){push(v,defaultQty);return;}
-      if(Array.isArray(v)){v.forEach(z=>visit(z,defaultQty));return;}
-      if(typeof v==='object'){
-        if(('id'in v||'item_id'in v||'itemId'in v) && ('qty'in v||'quantity'in v||'amount'in v)){push(v.id??v.item_id??v.itemId,v.qty??v.quantity??v.amount);return;}
-        if(('id'in v||'item_id'in v||'itemId'in v) && Object.keys(v).length<10){push(v.id??v.item_id??v.itemId,v.qty??v.quantity??v.amount??defaultQty);return;}
-        Object.entries(v).forEach(([k,val])=>{
-          if(/^\d+$/.test(k) && (Array.isArray(val)||typeof val==='number')) push(k,Array.isArray(val)?val[0]:val);
-          else if(['items','item','items_bought','items_sold','item_bought','item_sold','items_gained','item_gained','items_received','item_received','reward_items','reward_item','loot_items','loot_item'].includes(k)) visit(val,data.quantity??data.qty??data.amount??defaultQty);
-        });
-      }
-    };
-    const q=data.quantity??data.qty??data.amount??1;
-    // Foreign-market logs such as 4201 can be {item: 274, quantity: N}.
-    visit(data.items,q);visit(data.item,q);visit(data.items_bought,q);visit(data.items_sold,q);visit(data.item_bought,q);visit(data.item_sold,q);visit(data.items_gained,q);visit(data.item_gained,q);visit(data.items_received,q);visit(data.item_received,q);visit(data.reward_items,q);visit(data.reward_item,q);visit(data.loot_items,q);visit(data.loot_item,q);
-    if(!out.length && (data.item_id||data.itemid||data.itemId)) push(data.item_id??data.itemid??data.itemId,q);
-    const merged=new Map();out.forEach(x=>merged.set(x.id,(merged.get(x.id)||0)+x.qty));return [...merged].map(([id,qty])=>({id,qty}));
-  }
+  data=data||{};
+  const out=[];
+  const push=(id,q=1)=>{id=Number(id);q=Number(q)||1;if(id>0&&q>0)out.push({id,qty:q});};
+  const itemKeys=new Set(['items','item','items_bought','items_sold','item_bought','item_sold','items_gained','item_gained','items_received','item_received','reward_items','reward_item','loot_items','loot_item','found_items','found_item']);
+  const visit=(v,defaultQty=1,depth=0)=>{
+    if(v==null||depth>8)return;
+    if(typeof v==='number' || (typeof v==='string' && /^\d+$/.test(v))){push(v,defaultQty);return;}
+    if(Array.isArray(v)){v.forEach(z=>visit(z,defaultQty,depth+1));return;}
+    if(typeof v!=='object')return;
+    const id=v.id??v.item_id??v.itemId;
+    const hasQty=('qty'in v)||('quantity'in v)||('amount'in v)||('count'in v);
+    if(id!=null && (hasQty || (depth>0 && Object.keys(v).length<10))){
+      const q=v.qty??v.quantity??v.amount??v.count??defaultQty;
+      push(id,q); return;
+    }
+    Object.entries(v).forEach(([k,val])=>{
+      const lk=String(k).toLowerCase();
+      if(/^\d+$/.test(k)){
+        if(typeof val==='number') push(k,val);
+        else if(Array.isArray(val)) push(k,val[0]??defaultQty);
+        else if(val && typeof val==='object') push(k,val.qty??val.quantity??val.amount??val.count??defaultQty);
+      } else if(itemKeys.has(lk)) visit(val,v.quantity??v.qty??v.amount??v.count??defaultQty,depth+1);
+      else if(val && typeof val==='object' && depth<2 && /item|reward|loot|gain|receive|find|found/.test(lk)) visit(val,defaultQty,depth+1);
+    });
+  };
+  const q=data.quantity??data.qty??data.amount??data.count??1;
+  visit(data,q,0);
+  const merged=new Map();out.forEach(x=>merged.set(x.id,(merged.get(x.id)||0)+x.qty));return [...merged].map(([id,qty])=>({id,qty}));
+}
 
   function cashTotal(data, qtyValue) {
     const totalKeys=['cost_total','total_cost','total','price_total','money','amount_paid','proceeds','revenue','sale_total','total_value'];
@@ -510,24 +525,50 @@
     });
   }
 
+  function nextLogPageParams(data,currentParams) {
+  const next=data?._metadata?.links?.next;
+  if(!next)return null;
+  try {
+    const u=new URL(next,API+'/user/log');
+    const params={...currentParams};
+    for(const [k,v] of u.searchParams.entries()){
+      if(k==='key'||k==='comment')continue;
+      params[k]=v;
+    }
+    return params;
+  } catch(_) { return null; }
+}
+
   async function fetchHistory(logIds) {
-    const found=new Map();
-    for(let b=0;b<logIds.length;b+=MAX_LOG_IDS_PER_REQUEST){
-      if(state.syncCancel)break;
-      const ids=logIds.slice(b,b+MAX_LOG_IDS_PER_REQUEST); let cursor=nowSec()+60, page=0;
-      while(!state.syncCancel){
-        page++; state.syncProgress=`Historical scan ${Math.floor(b/MAX_LOG_IDS_PER_REQUEST)+1}/${Math.ceil(logIds.length/MAX_LOG_IDS_PER_REQUEST)} · page ${page} · ${qty(found.size)} matching transaction rows found`;render();
-        const data=await apiGet('/user/log',{log:ids.join(','),limit:100,to:cursor});
-        const rows=data.log||[]; if(!rows.length)break;
-        rows.forEach(r=>parseLogEntry(r).forEach(t=>found.set(t.id,t)));
-        const oldest=Math.min(...rows.map(r=>Number(r.timestamp)||cursor));
-        if(rows.length<100||!Number.isFinite(oldest)||oldest<=1)break;
-        cursor=oldest-1; await sleep(REQUEST_GAP_MS);
-      }
+  const found=new Map();
+  const diagnostics={rawRows:0,parsedRows:0,matchedRows:0,batches:Math.ceil(logIds.length/MAX_LOG_IDS_PER_REQUEST),logTypes:logIds.length};
+  for(let b=0;b<logIds.length;b+=MAX_LOG_IDS_PER_REQUEST){
+    if(state.syncCancel)break;
+    const ids=logIds.slice(b,b+MAX_LOG_IDS_PER_REQUEST);
+    let params={log:ids.join(','),limit:100,to:nowSec()+60};
+    let page=0,previousSignature='';
+    while(!state.syncCancel){
+      page++; state.syncProgress=`Historical scan ${Math.floor(b/MAX_LOG_IDS_PER_REQUEST)+1}/${diagnostics.batches} · page ${page} · ${qty(found.size)} matching rows found`;render();
+      const data=await apiGet('/user/log',params);
+      const rows=Array.isArray(data.log)?data.log:[];
+      diagnostics.rawRows+=rows.length;
+      if(!rows.length)break;
+      rows.forEach(r=>{
+        const parsed=parseLogEntry(r);
+        if(parsed.length)diagnostics.parsedRows+=parsed.length;
+        parsed.forEach(t=>{found.set(t.id,t);diagnostics.matchedRows++;});
+      });
+      const nextParams=nextLogPageParams(data,params);
+      if(!nextParams)break;
+      const signature=JSON.stringify(nextParams);
+      if(signature===previousSignature)break;
+      previousSignature=signature;params=nextParams;
       await sleep(REQUEST_GAP_MS);
     }
-    return [...found.values()];
+    await sleep(REQUEST_GAP_MS);
   }
+  return {transactions:[...found.values()],diagnostics};
+}
 
   async function syncAll() {
     if(state.syncing)return;
@@ -537,11 +578,14 @@
     try {
       await ensureCatalog(); const types=relevantLogTypes(await ensureLogTypes(true));
       if(!types.length) throw new Error('No relevant Torn transaction or free-acquisition log types were detected.');
-      const fresh=await fetchHistory(types.map(x=>x.id));
+      const scan=await fetchHistory(types.map(x=>x.id));
+      const fresh=scan.transactions;
       const merged=new Map(state.transactions.map(x=>[x.id,x])); fresh.forEach(x=>merged.set(x.id,x));
       state.transactions=[...merged.values()].filter(t=>state.tracked.some(i=>Number(i.id)===Number(t.itemId))).sort((a,b)=>a.timestamp-b.timestamp);
-      save('transactions',state.transactions); state.sync.lastSync=nowSec(); state.sync.firstSyncComplete=!state.syncCancel;save('sync',state.sync);
-      state.syncProgress=state.syncCancel?`Sync stopped. ${qty(fresh.length)} matching rows collected this run.`:`Historical sync complete · ${qty(state.transactions.length)} tracked acquisition/sale rows stored locally across ${qty(types.length)} log types.`;
+      save('transactions',state.transactions); state.sync.lastSync=nowSec(); state.sync.firstSyncComplete=!state.syncCancel;state.sync.diagnostics=scan.diagnostics;save('sync',state.sync);
+      if(state.syncCancel) state.syncProgress=`Sync stopped · ${qty(scan.diagnostics.rawRows)} logs scanned · ${qty(fresh.length)} matching rows collected.`;
+      else if(!fresh.length) state.syncProgress=`Sync finished but found no matching tracked-item rows after scanning ${qty(scan.diagnostics.rawRows)} logs across ${qty(types.length)} candidate log types. Check that your User → Log API key is not restricted to only selected log types/categories.`;
+      else state.syncProgress=`Historical sync complete · ${qty(state.transactions.length)} tracked rows stored · ${qty(scan.diagnostics.rawRows)} raw logs scanned across ${qty(types.length)} candidate log types.`;
     } catch(e) {
       state.syncProgress=`Sync error: ${e.message}`;
     } finally {state.syncing=false;render();}
