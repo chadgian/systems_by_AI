@@ -1,0 +1,92 @@
+name: Torn Trade Analyzer v0.1.6 robust verify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.tta-v016-trigger2'
+
+permissions:
+  contents: write
+
+jobs:
+  verify-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply v0.1.6 patch from canonical publisher
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          lines=Path('.github/workflows/tta-v016-autodiscovery.yml').read_text().splitlines()
+          start=next(i for i,l in enumerate(lines) if l.strip()=="python - <<'PY'")+1
+          body=[]
+          for l in lines[start:]:
+              if l.strip()=='PY': break
+              body.append(l[10:] if l.startswith('          ') else l)
+          Path('/tmp/tta-v016-patch.py').write_text('\n'.join(body)+'\n')
+          PY
+          python /tmp/tta-v016-patch.py
+      - name: Syntax and behavioral verification
+        shell: bash
+        run: |
+          node --check torn-trade-analyzer.user.js
+          grep -q '@version      0.1.6' torn-trade-analyzer.user.js
+          grep -q 'historyItemRows' torn-trade-analyzer.user.js
+          grep -q 'Items in your history' torn-trade-analyzer.user.js
+          grep -q 'togglePin' torn-trade-analyzer.user.js
+          grep -q 'cycleSort' torn-trade-analyzer.user.js
+          grep -q 'return items.map(it=>' torn-trade-analyzer.user.js
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('torn-trade-analyzer.user.js').read_text()
+          marker="  // Keep the UI alive through Torn's SPA navigation and delayed DOM swaps."
+          i=s.index(marker)
+          testable=s[:i]+"  globalThis.__tta_test={state,effectiveTracked,historyItemRows,parseLogEntry,summaryFor,SORT_OPTIONS};\n})();"
+          Path('/tmp/tta-testable.js').write_text(testable)
+          PY
+          node <<'NODE'
+          const fs=require('fs');
+          global.localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
+          global.window={};global.document={};global.confirm=()=>true;
+          eval(fs.readFileSync('/tmp/tta-testable.js','utf8'));
+          const t=global.__tta_test;
+          if(!t)throw new Error('test hook missing');
+          const now=Math.floor(Date.now()/1000);
+          t.state.demo=false;t.state.dateMode='all';
+          t.state.catalog=[
+            {id:274,name:'Panda Plushie',type:'Plushie',image:''},
+            {id:258,name:'Jaguar Plushie',type:'Plushie',image:''}
+          ];
+          t.state.transactions=[
+            {id:'a',timestamp:now-400,itemId:274,side:'buy',qty:10,total:1000,netTotal:1000,source:'Foreign Market',title:'Foreign buy'},
+            {id:'b',timestamp:now-300,itemId:274,side:'sell',qty:5,total:1000,netTotal:1000,source:'Item Market',title:'Market sell'},
+            {id:'c',timestamp:now-200,itemId:258,side:'buy',qty:20,total:2000,netTotal:2000,source:'Foreign Market',title:'Foreign buy'},
+            {id:'d',timestamp:now-100,itemId:258,side:'sell',qty:5,total:400,netTotal:400,source:'Item Market',title:'Market sell'}
+          ];
+          t.state.tracked=[];
+          if(t.effectiveTracked().length!==2)throw new Error('auto discovery failed');
+          t.state.pinnedIds=[258];t.state.sortMode='profit';t.state.itemSearch='';
+          let rows=t.historyItemRows();
+          if(rows[0].item.id!==258)throw new Error('pin does not override sorting');
+          t.state.pinnedIds=[];rows=t.historyItemRows();
+          if(rows[0].item.id!==274)throw new Error('profit sorting failed');
+          t.state.itemSearch='jaguar';rows=t.historyItemRows();
+          if(rows.length!==1||rows[0].item.id!==258)throw new Error('search failed');
+          const parsed=t.parseLogEntry({id:'x',timestamp:now,details:{id:4201,title:'Item abroad buy'},data:{item:274,quantity:2,cost_each:100},params:{}});
+          if(parsed.length!==1||parsed[0].itemId!==274||parsed[0].qty!==2)throw new Error('parser still depends on manual tracking');
+          console.log('v0.1.6 behavioral tests passed');
+          NODE
+      - name: Publish verified userscript
+        shell: bash
+        run: |
+          printf 'PASS: v0.1.6 syntax + auto-discovery + search + sorting + pin tests\n' > .tta-v016-status.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add torn-trade-analyzer.user.js .tta-v016-status.txt
+          git commit -m 'Auto-discover item history with search sort and pins'
+          git push origin HEAD:main
