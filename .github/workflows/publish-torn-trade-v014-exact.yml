@@ -2,7 +2,7 @@ name: Publish exact Torn Trade Analyzer v0.1.4
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
 
 permissions:
   contents: write
@@ -19,9 +19,12 @@ jobs:
       - name: Rebuild verified userscript on PR branch
         shell: bash
         run: |
-          cat .tmp_tta_v014/chunk0.b64 .tmp_tta_v014/chunk1.b64 .tmp_tta_v014/chunk2.b64 > /tmp/tta.b64
+          cat .tmp_tta_v014/gz00.b64 .tmp_tta_v014/gz01.b64 .tmp_tta_v014/gz02.b64 .tmp_tta_v014/gz03.b64 .tmp_tta_v014/gz04.b64 .tmp_tta_v014/gz05.b64 > /tmp/tta.b64
           base64 -d /tmp/tta.b64 > /tmp/tta.js.gz
+          gzip -t /tmp/tta.js.gz
           gzip -dc /tmp/tta.js.gz > torn-trade-analyzer.user.js
+          test "$(wc -c < torn-trade-analyzer.user.js)" = "57298"
+          test "$(git hash-object torn-trade-analyzer.user.js)" = "f75472be028899ab9fc0d044a7740053e8125e13"
           node --check torn-trade-analyzer.user.js
           grep -q '@version      0.1.4' torn-trade-analyzer.user.js
           grep -q 'function nextLogPageParams' torn-trade-analyzer.user.js
