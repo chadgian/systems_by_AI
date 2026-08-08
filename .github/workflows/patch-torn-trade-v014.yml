@@ -28,7 +28,8 @@ jobs:
           body=[]
           for line in src[start:]:
               body.append(line[10:] if line.startswith('          ') else line)
-          script='\n'.join(body).replace('${{ github.event.pull_request.head.ref }}','${HEAD_BRANCH}')+'\n'
+          needle='$'+'{{ github.event.pull_request.head.ref }}'
+          script='\n'.join(body).replace(needle,'${HEAD_BRANCH}')+'\n'
           Path('/tmp/apply-v014.sh').write_text(script)
           PY
           bash /tmp/apply-v014.sh
