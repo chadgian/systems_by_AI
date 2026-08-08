@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn Trade Analyzer
 // @namespace    chadgian.torn.trade.analyzer
-// @version      0.1.12
-// @description  Fast Torn trade analytics with minimizable background sync, authoritative player trades, market-value allocation, cached FIFO, item details, and progressive loading. Data stays on-device.
+// @version      0.1.13
+// @description  Fast Torn trade analytics with reload-resumable background sync, authoritative player trades, market-value allocation, cached FIFO, item details, and progressive loading. Data stays on-device.
 // @author       chadgian + ChatGPT
 // @match        https://www.torn.com/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.1.12';
+  const VERSION = '0.1.13';
   const API_KEY = '_###PDA-APIKEY###_';
   const NS = 'tta:v1:';
   const API = 'https://api.torn.com/v2';
@@ -645,7 +645,7 @@
         await withBusy('Refreshing catalog','Downloading the latest Torn item catalog and market values…',async()=>{state.catalog=[];state.catalogVersion=0;state.catalogUpdatedAt=0;save('catalog',[]);save('catalogVersion',0);save('catalogUpdatedAt',0);await ensureCatalog(true);});render();toast(`Item catalog and market values refreshed · ${qty(state.catalog.length)} items.`);
       }
       else if(act==='resetData'&&confirm('Reset all Torn Trade Analyzer discovered item history and local transaction data?')){
-        ['tracked','transactions','sync','pinnedIds','hiddenIds','itemSearch','sortMode'].forEach(k=>localStorage.removeItem(NS+k));state.tracked=[];state.transactions=[];state.pinnedIds=[];state.hiddenIds=[];state.itemSearch='';state.sortMode='recent';state.sync={lastSync:0,firstSyncComplete:false};state.expanded=null;resetAnalyticsCache();render();toast('Analyzer data reset.');
+        ['tracked','transactions','sync','syncJob','pinnedIds','hiddenIds','itemSearch','sortMode'].forEach(k=>localStorage.removeItem(NS+k));state.tracked=[];state.transactions=[];state.pinnedIds=[];state.hiddenIds=[];state.itemSearch='';state.sortMode='recent';state.sync={lastSync:0,firstSyncComplete:false};state.expanded=null;resetAnalyticsCache();render();toast('Analyzer data reset.');
       }
     });
 
@@ -1038,6 +1038,225 @@
     return a;
   }
 
-  const boot=()=>{if(document.body)mount();else setTimeout(boot,250)}; boot();
+  // v0.1.13 resumable sync engine. These later declarations intentionally override
+  // the original syncAll() path above while retaining it as a fallback reference.
+  const SYNC_JOB_SCHEMA_VERSION = 1;
+  let resumeBootStarted=false,resumableTxMap=null,resumableTxJob='';
+
+  function loadSyncJob() {
+    const job=load('syncJob',null);
+    if(!job||Number(job.schema)!==SYNC_JOB_SCHEMA_VERSION||!job.active||!job.period)return null;
+    return job;
+  }
+  function saveSyncJob(job) {
+    try{
+      if(job){job.updatedAt=nowSec();localStorage.setItem(NS+'syncJob',JSON.stringify(job));}
+      else localStorage.removeItem(NS+'syncJob');
+      return true;
+    }catch(e){return false;}
+  }
+  function clearSyncJob(){saveSyncJob(null);}
+  function syncJobCancelled(job){return !!(state.syncCancel||job?.cancelled);}
+  function checkpointSyncJob(job,progress='') {
+    if(progress){job.progress=String(progress);setSyncProgress(job.progress);}
+    if(!saveSyncJob(job))throw new Error('Unable to save the resumable sync checkpoint. Free some browser storage and try again.');
+  }
+  function stripSyncRunMarkers() {
+    let changed=false;
+    state.transactions=(state.transactions||[]).map(t=>{
+      if(!t||!Object.prototype.hasOwnProperty.call(t,'syncRunId'))return t;
+      const x={...t};delete x.syncRunId;changed=true;return x;
+    });
+    if(changed){localStorage.setItem(NS+'transactions',JSON.stringify(state.transactions));resetAnalyticsCache();}
+    resumableTxMap=null;resumableTxJob='';
+  }
+  function checkpointTransactionRows(job,rows) {
+    if(!rows?.length)return;
+    if(!resumableTxMap||resumableTxJob!==job.id){
+      resumableTxMap=new Map((state.transactions||[]).filter(Boolean).map(x=>[String(x.id),x]));
+      resumableTxJob=job.id;
+    }
+    for(const row of rows){if(row?.id!=null)resumableTxMap.set(String(row.id),{...row,syncRunId:job.id});}
+    const next=[...resumableTxMap.values()];
+    localStorage.setItem(NS+'transactions',JSON.stringify(next));
+    state.transactions=next;
+  }
+  function finalizeResumableTransactions(job) {
+    const from=Number(job.period?.from)||0,to=Number(job.period?.to)||0;
+    let freshCount=0;
+    const next=[];
+    for(const row of state.transactions||[]){
+      if(!row||isLegacyTradeLogTransaction(row))continue;
+      const ts=Number(row.timestamp)||0,inPeriod=ts>=from&&ts<=to,current=row.syncRunId===job.id;
+      if(inPeriod&&!current)continue;
+      if(current)freshCount++;
+      if(Object.prototype.hasOwnProperty.call(row,'syncRunId')){const x={...row};delete x.syncRunId;next.push(x);}else next.push(row);
+    }
+    next.sort((a,b)=>(Number(a.timestamp)||0)-(Number(b.timestamp)||0)||String(a.id).localeCompare(String(b.id)));
+    localStorage.setItem(NS+'transactions',JSON.stringify(next));state.transactions=next;resumableTxMap=null;resumableTxJob='';resetAnalyticsCache();
+    return freshCount;
+  }
+  function abandonResumableMarkers(job) {
+    let changed=false;
+    state.transactions=(state.transactions||[]).map(row=>{
+      if(row?.syncRunId!==job?.id)return row;
+      const x={...row};delete x.syncRunId;changed=true;return x;
+    });
+    if(changed)localStorage.setItem(NS+'transactions',JSON.stringify(state.transactions));
+    resumableTxMap=null;resumableTxJob='';resetAnalyticsCache();
+  }
+  function newSyncDiagnostics(job,mode,logTypes,batches) {
+    return {rawRows:0,parsedRows:0,matchedRows:0,batches,logTypes,pages:0,oldestTimestamp:0,mode,periodFrom:job.period.from,periodTo:job.period.to,tradeHeaders:0,tradeListPages:0,tradeDetails:0,tradesWithItems:0,tradeTransactions:0};
+  }
+  function createResumableSyncJob() {
+    stripSyncRunMarkers();
+    const period=selectedPeriodBounds(),periodText=period.from>0?`${dateStr(period.from)} – ${dateStr(Math.min(period.to,nowSec()))}`:'all available history';
+    const job={schema:SYNC_JOB_SCHEMA_VERSION,id:`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`,active:true,cancelled:false,createdAt:nowSec(),updatedAt:nowSec(),period,periodText,phase:'setup',progress:`Preparing historical scan for ${periodText}…`,resumedCount:0,logTypeIds:[],logMode:'filtered',logBatchIndex:0,logCursorTo:period.to,logPage:0,logPreviousSignature:'',userId:0,diagnostics:null,tradeHeaders:[],tradeListParams:null,tradeListSeen:[],tradeDetailIndex:0};
+    checkpointSyncJob(job,job.progress);return job;
+  }
+  async function syncApiGet(path,params={}) {
+    let last;
+    for(let attempt=0;attempt<3;attempt++){
+      try{return await apiGet(path,params);}catch(e){last=e;if(attempt>=2)break;setSyncProgress(`Temporary API error · retry ${attempt+2}/3 · ${e.message}`);await sleep(1200*(attempt+1));}
+    }
+    throw last;
+  }
+  function advanceResumableLogBatch(job) {
+    job.logBatchIndex=(Number(job.logBatchIndex)||0)+1;job.logCursorTo=job.period.to;job.logPage=0;job.logPreviousSignature='';
+  }
+  async function runResumableLogPhase(job,mode) {
+    const filtered=mode==='filtered',ids=filtered?(job.logTypeIds||[]):[],totalBatches=filtered?Math.ceil(ids.length/MAX_LOG_IDS_PER_REQUEST):1;
+    if(job.logMode!==mode){job.logMode=mode;job.logBatchIndex=0;job.logCursorTo=job.period.to;job.logPage=0;job.logPreviousSignature='';}
+    while((Number(job.logBatchIndex)||0)<totalBatches&&!syncJobCancelled(job)){
+      const batchIndex=Number(job.logBatchIndex)||0,batchIds=filtered?ids.slice(batchIndex*MAX_LOG_IDS_PER_REQUEST,(batchIndex+1)*MAX_LOG_IDS_PER_REQUEST):[];
+      const cursor=Number(job.logCursorTo)||job.period.to,page=(Number(job.logPage)||0)+1,label=filtered?`Historical scan ${batchIndex+1}/${totalBatches}`:'Compatibility history scan';
+      checkpointSyncJob(job,`${label} · page ${page} · back to ${dateStr(Math.max(job.period.from,Math.min(cursor,nowSec())))}`);
+      const params={limit:100,to:cursor};if(job.period.from>0)params.from=job.period.from;if(filtered)params.log=batchIds.join(',');
+      const data=await syncApiGet('/user/log',params),rows=Array.isArray(data?.log)?data.log:[];
+      job.diagnostics.pages=(Number(job.diagnostics.pages)||0)+1;
+      if(!rows.length){advanceResumableLogBatch(job);checkpointSyncJob(job,`${label} · page ${page} complete`);continue;}
+      const parsedRows=[];
+      job.diagnostics.rawRows=(Number(job.diagnostics.rawRows)||0)+rows.length;
+      for(const r of rows){
+        const ts=Number(r?.timestamp)||0;if(ts<job.period.from||ts>job.period.to)continue;
+        const parsed=parseLogEntry(r);job.diagnostics.parsedRows+=parsed.length;job.diagnostics.matchedRows+=parsed.length;parsedRows.push(...parsed);
+      }
+      checkpointTransactionRows(job,parsedRows);
+      const timestamps=rows.map(r=>Number(r?.timestamp)).filter(Number.isFinite);
+      if(!timestamps.length){advanceResumableLogBatch(job);checkpointSyncJob(job,`${label} · page ${page} complete`);continue;}
+      const oldest=Math.min(...timestamps),signature=rows.map(rawLogKey).join('|');
+      job.diagnostics.oldestTimestamp=job.diagnostics.oldestTimestamp?Math.min(job.diagnostics.oldestTimestamp,oldest):oldest;
+      let done=job.period.from>0&&oldest<=job.period.from,nextTo=oldest;
+      if(signature===job.logPreviousSignature)nextTo=oldest-1;
+      if(!Number.isFinite(nextTo)||(nextTo>=cursor&&signature===job.logPreviousSignature)||(job.period.from>0&&nextTo<job.period.from))done=true;
+      if(done)advanceResumableLogBatch(job);else{job.logCursorTo=nextTo;job.logPage=page;job.logPreviousSignature=signature;}
+      checkpointSyncJob(job,`${label} · ${qty(job.diagnostics.matchedRows||0)} item rows checkpointed`);
+      if(!syncJobCancelled(job))await sleep(REQUEST_GAP_MS);
+    }
+    return !syncJobCancelled(job);
+  }
+  function compactTradeHeader(row) {
+    const id=Number(row?.id)||0,ts=Number(row?.completed_at||row?.timestamp)||0,n=Number(row?.items);
+    return id>0&&ts>0?{id,completed_at:ts,items:Number.isFinite(n)?n:null}:null;
+  }
+  async function runResumableTradeList(job) {
+    const found=new Map((job.tradeHeaders||[]).map(x=>[Number(x.id),x]));
+    let params=job.tradeListParams||{cat:'finished',limit:100,sort:'DESC',to:job.period.to};if(job.period.from>0&&!('from'in params))params.from=job.period.from;
+    const seen=new Set(job.tradeListSeen||[]);
+    while(!syncJobCancelled(job)){
+      const page=(Number(job.diagnostics.tradeListPages)||0)+1;checkpointSyncJob(job,`Player trades · list page ${page} · ${qty(found.size)} completed trades checkpointed`);
+      const data=await syncApiGet('/user/trades',params),rows=Array.isArray(data?.trades)?data.trades:[];job.diagnostics.tradeListPages=page;
+      for(const row of rows){const h=compactTradeHeader(row);if(h&&h.completed_at>=job.period.from&&h.completed_at<=job.period.to)found.set(h.id,h);}
+      job.tradeHeaders=[...found.values()];job.diagnostics.tradeHeaders=job.tradeHeaders.length;
+      const next=nextLogPageParams(data,params);
+      if(!next||!rows.length){job.tradeListParams=null;job.phase='trade-details';job.tradeDetailIndex=Number(job.tradeDetailIndex)||0;checkpointSyncJob(job,`Player trades · ${qty(job.tradeHeaders.length)} completed trades listed`);return true;}
+      const sig=JSON.stringify(Object.keys(next).sort().map(k=>[k,next[k]]));
+      if(seen.has(sig)){job.tradeListParams=null;job.phase='trade-details';checkpointSyncJob(job,`Player trades · repeated page stopped safely · ${qty(job.tradeHeaders.length)} trades listed`);return true;}
+      seen.add(sig);job.tradeListSeen=[...seen].slice(-80);job.tradeListParams=next;checkpointSyncJob(job,`Player trades · list page ${page} saved`);await sleep(REQUEST_GAP_MS);
+    }
+    return false;
+  }
+  async function runResumableTradeDetails(job) {
+    const headers=job.tradeHeaders||[];
+    while((Number(job.tradeDetailIndex)||0)<headers.length&&!syncJobCancelled(job)){
+      const i=Number(job.tradeDetailIndex)||0,h=headers[i],summaryItems=Number(h?.items);
+      if(Number.isFinite(summaryItems)&&summaryItems===0){job.tradeDetailIndex=i+1;checkpointSyncJob(job,`Player trades · ${i+1}/${headers.length} · no item rows`);continue;}
+      checkpointSyncJob(job,`Player trades · ${i+1}/${headers.length} · fetching trade #${Number(h.id)}`);
+      const data=await syncApiGet(`/user/${Number(h.id)}/trade`);job.diagnostics.tradeDetails=(Number(job.diagnostics.tradeDetails)||0)+1;
+      const rows=parsePlayerTrade(data?.trade,job.userId);if(rows.length){job.diagnostics.tradesWithItems=(Number(job.diagnostics.tradesWithItems)||0)+1;job.diagnostics.tradeTransactions=(Number(job.diagnostics.tradeTransactions)||0)+rows.length;checkpointTransactionRows(job,rows);}
+      job.tradeDetailIndex=i+1;checkpointSyncJob(job,`Player trades · ${i+1}/${headers.length} · ${qty(job.diagnostics.tradeTransactions||0)} allocated item rows checkpointed`);
+      if(job.tradeDetailIndex<headers.length&&!syncJobCancelled(job))await sleep(REQUEST_GAP_MS);
+    }
+    if(!syncJobCancelled(job)){job.phase='finalize';checkpointSyncJob(job,'Finalizing cached history and FIFO inputs…');return true;}return false;
+  }
+  async function prepareResumableSync(job) {
+    await ensureCatalog();setBusyDetail('Verifying API access and log types…');
+    const keyInfo=await inspectActiveKey(),probe=await probeUserLogs(),types=relevantLogTypes(await ensureLogTypes(true));
+    if(!types.length)throw new Error('No relevant Torn transaction or free-acquisition log types were detected.');
+    job.userId=keyInfo.userId;job.logTypeIds=types.map(x=>Number(x.id)).filter(x=>x>0);job.logMode='filtered';job.logBatchIndex=0;job.logCursorTo=job.period.to;job.logPage=0;job.logPreviousSignature='';
+    job.diagnostics=newSyncDiagnostics(job,'filtered',job.logTypeIds.length,Math.ceil(job.logTypeIds.length/MAX_LOG_IDS_PER_REQUEST));
+    job.diagnostics.keyType=keyInfo.type;job.diagnostics.keyLevel=keyInfo.level;job.diagnostics.keySource=keySource();job.diagnostics.customLogPermissions=keyInfo.customLogPermissions;job.diagnostics.probeRows=probe.rows.length;
+    job.phase='logs-filtered';checkpointSyncJob(job,`Scanning the complete selected period: ${job.periodText}…`);
+  }
+  function finishResumableSync(job) {
+    const freshCount=finalizeResumableTransactions(job),d=job.diagnostics||{};
+    state.sync.lastSync=nowSec();state.sync.firstSyncComplete=true;state.sync.autoDiscoveryComplete=true;
+    const oldCoverage=Number(state.sync.coverageFrom);state.sync.coverageFrom=Number.isFinite(oldCoverage)?Math.min(oldCoverage,job.period.from):job.period.from;state.sync.coverageTo=Math.max(Number(state.sync.coverageTo)||0,Math.min(job.period.to,nowSec()));state.sync.diagnostics=d;save('sync',state.sync);
+    const mode=d.mode==='unfiltered-fallback'?'compatibility scan':'filtered scan';
+    if(!freshCount)setSyncProgress(`${mode} completed for ${job.periodText} · ${qty(d.rawRows||0)} raw logs scanned · no recognizable item acquisitions or sales found.`);
+    else setSyncProgress(`Historical sync complete for ${job.periodText} · ${qty(freshCount)} item rows · ${qty(d.tradesWithItems||0)} player trades · ${qty(d.rawRows||0)} raw logs across ${qty(d.pages||0)} log pages.`);
+    job.active=false;job.phase='done';clearSyncJob();
+  }
+  async function runResumableSync(job,resumed=false) {
+    if(state.syncing)return;
+    state.syncing=true;state.syncCancel=false;updateFabState();
+    if(resumed){const prior=String(job.progress||job.periodText).replace(/^Resumed after page reload · /,'');job.resumedCount=(Number(job.resumedCount)||0)+1;checkpointSyncJob(job,`Resumed after page reload · ${prior}`);}
+    else setSyncProgress(job.progress||`Preparing historical scan for ${job.periodText}…`);
+    setBusy(true,resumed?'Resuming trade history sync':'Syncing trade history',state.syncProgress,true);
+    const syncBtn=document.querySelector('#tta-root [data-act="sync"]');if(syncBtn){syncBtn.disabled=true;syncBtn.innerHTML='<span class="tta-sync"><span class="tta-spinner"></span>Syncing</span>';}
+    if(state.open)await nextPaint();
+    try{
+      while(!syncJobCancelled(job)&&job.active){
+        if(job.phase==='setup')await prepareResumableSync(job);
+        else if(job.phase==='logs-filtered'){
+          await runResumableLogPhase(job,'filtered');if(syncJobCancelled(job))break;
+          if((Number(job.diagnostics?.rawRows)||0)===0){job.phase='logs-fallback';job.logMode='unfiltered';job.logBatchIndex=0;job.logCursorTo=job.period.to;job.logPage=0;job.logPreviousSignature='';job.diagnostics=newSyncDiagnostics(job,'unfiltered-fallback',0,1);checkpointSyncJob(job,'Filtered scan returned no raw rows · starting compatibility scan…');}
+          else{job.phase='trades-list';checkpointSyncJob(job,`Scanning completed player trades for ${job.periodText}…`);}
+        }
+        else if(job.phase==='logs-fallback'){await runResumableLogPhase(job,'unfiltered');if(syncJobCancelled(job))break;job.phase='trades-list';checkpointSyncJob(job,`Scanning completed player trades for ${job.periodText}…`);}
+        else if(job.phase==='trades-list')await runResumableTradeList(job);
+        else if(job.phase==='trade-details')await runResumableTradeDetails(job);
+        else if(job.phase==='finalize'){finishResumableSync(job);break;}
+        else{job.phase='setup';checkpointSyncJob(job,'Repairing an unknown sync checkpoint…');}
+      }
+      if(syncJobCancelled(job)){
+        job.cancelled=true;abandonResumableMarkers(job);clearSyncJob();setSyncProgress(`Sync stopped · ${qty(job.diagnostics?.rawRows||0)} raw logs scanned · partial checkpointed rows kept safely.`);
+      }
+    }catch(e){
+      job.lastError=String(e?.message||e);job.lastErrorAt=nowSec();
+      try{checkpointSyncJob(job,`Sync paused at saved checkpoint · ${job.lastError} · tap Sync or reload a Torn page to retry.`);}catch(saveError){setSyncProgress(`Sync stopped: ${saveError.message}`);clearSyncJob();abandonResumableMarkers(job);}
+    }
+    finally{state.syncing=false;updateFabState();setBusy(false);render();}
+  }
+  async function syncAll(options={}) {
+    if(state.syncing)return;
+    if(!hasApiKey()){state.demo=true;toast('Add a Torn API key in Settings → API Key to sync real history.');return;}
+    let job=options?.job||loadSyncJob();
+    if(job?.cancelled){abandonResumableMarkers(job);clearSyncJob();job=null;}
+    if(!job)job=createResumableSyncJob();
+    return runResumableSync(job,!!options?.resume||Number(job.resumedCount)>0||job.phase!=='setup');
+  }
+  function resumePendingSync() {
+    if(resumeBootStarted||state.syncing)return;
+    const job=loadSyncJob();if(!job)return;
+    if(job.cancelled){abandonResumableMarkers(job);clearSyncJob();return;}
+    resumeBootStarted=true;syncAll({job,resume:true});
+  }
+  function persistSyncCancellation() {
+    const job=loadSyncJob();if(!job)return;job.cancelled=true;job.progress='Stopping after the current API request…';saveSyncJob(job);
+  }
+  document.addEventListener('click',e=>{const el=e.target?.closest?.('#tta-root [data-act="cancelSync"]');if(el)persistSyncCancellation();},true);
+
+  const boot=()=>{if(document.body){mount();resumePendingSync();}else setTimeout(boot,250)}; boot();
   setInterval(()=>{if(!document.getElementById('tta-fab')||!document.getElementById('tta-root'))mount();},5000);
 })();
