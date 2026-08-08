@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn Trade Analyzer
 // @namespace    chadgian.torn.trade.analyzer
-// @version      0.1.10
-// @description  Fast, period-aware Torn trade analytics with market values, item details, cached FIFO calculations, hide/pin/search/sort controls, and progressive loading. Data stays on-device.
+// @version      0.1.11
+// @description  Fast Torn trade analytics with authoritative player trades, market-value cash allocation, cached FIFO calculations, item details, and progressive loading. Data stays on-device.
 // @author       chadgian + ChatGPT
 // @match        https://www.torn.com/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.1.10';
+  const VERSION = '0.1.11';
   const API_KEY = '_###PDA-APIKEY###_';
   const NS = 'tta:v1:';
   const API = 'https://api.torn.com/v2';
@@ -504,8 +504,9 @@
     if(exp){
       const series=profitSeries(item.id),avgBuy=s.bought?s.buySpend/s.bought:0,avgSell=s.sold?s.sellRevenue/s.sold:0;
       const freeQty=s.events.filter(x=>x.side==='buy'&&x.free).reduce((n,x)=>n+x.qty,0);
+      const playerTradeCount=new Set(s.events.filter(x=>x.source==='Player Trade').map(x=>x.tradeId)).size;
       const recordedInventoryValue=marketPrice*Math.max(0,Number(s.remainingQty)||0);
-      details=`<div class="tta-minirow"><div class="tta-ministat"><small>Avg cost</small><b>${money(avgBuy,true)}</b></div><div class="tta-ministat"><small>Avg sell</small><b>${money(avgSell,true)}</b></div><div class="tta-ministat"><small>Inventory</small><b>${qty(s.remainingQty)}</b></div></div><div class="tta-minirow"><div class="tta-ministat"><small>Market value</small><b>${marketPrice?money(marketPrice,true):'—'}</b></div><div class="tta-ministat"><small>Recorded inventory value</small><b>${marketPrice?money(recordedInventoryValue,true):'—'}</b></div><div class="tta-ministat"><small>FIFO cost basis</small><b>${money(s.remainingCost,true)}</b></div></div><div class="tta-charthead"><h3>${esc(item.name)} profit</h3><small>#${item.id} · ${esc(itemType)} · ${s.events.length} events</small></div>${chartSvg(series,92)}<div class="tta-note">Market value is Torn's catalog market price per item. Recorded inventory value is your analyzer-recorded remaining quantity × that market value; it is not a live inventory count. Profit uses FIFO: each sale is matched against your oldest recorded acquisitions. ${s.unmatched?`⚠ ${qty(s.unmatched)} sold item(s) have no earlier recorded acquisition cost, so those units are excluded from realized profit.`:'All sold units in this period have recorded cost basis.'}${freeQty?` · ${qty(freeQty)} free-acquired item(s) use a $0 cost basis.`:''}</div>`;
+      details=`<div class="tta-minirow"><div class="tta-ministat"><small>Avg cost</small><b>${money(avgBuy,true)}</b></div><div class="tta-ministat"><small>Avg sell</small><b>${money(avgSell,true)}</b></div><div class="tta-ministat"><small>Inventory</small><b>${qty(s.remainingQty)}</b></div></div><div class="tta-minirow"><div class="tta-ministat"><small>Market value</small><b>${marketPrice?money(marketPrice,true):'—'}</b></div><div class="tta-ministat"><small>Recorded inventory value</small><b>${marketPrice?money(recordedInventoryValue,true):'—'}</b></div><div class="tta-ministat"><small>FIFO cost basis</small><b>${money(s.remainingCost,true)}</b></div></div><div class="tta-charthead"><h3>${esc(item.name)} profit</h3><small>#${item.id} · ${esc(itemType)} · ${s.events.length} events</small></div>${chartSvg(series,92)}<div class="tta-note">Market value is Torn's catalog market price per item. Recorded inventory value is your analyzer-recorded remaining quantity × that market value; it is not a live inventory count.${playerTradeCount?` · ${qty(playerTradeCount)} player trade(s) use each item type's market-value subtotal plus an equal share of that trade's cash surplus/deficit.`:''} Profit uses FIFO: each sale is matched against your oldest recorded acquisitions. ${s.unmatched?`⚠ ${qty(s.unmatched)} sold item(s) have no earlier recorded acquisition cost, so those units are excluded from realized profit.`:'All sold units in this period have recorded cost basis.'}${freeQty?` · ${qty(freeQty)} free-acquired item(s) use a $0 cost basis.`:''}</div>`;
     }
     return `<div class="tta-item ${exp?'expanded':''}" data-item="${item.id}"><div class="tta-itemtop" data-act="toggleItem" data-id="${item.id}" role="button" tabindex="0" aria-expanded="${exp?'true':'false'}">${itemIcon(item)}<div class="tta-itemcopy"><div class="tta-itemname">${esc(item.name)}</div><div class="tta-source">${esc(src)}</div><div class="tta-itemfacts"><span class="tta-factpill market">Market ${esc(marketText)}</span><span class="tta-factpill">${esc(itemType)}</span><span class="tta-factpill">#${item.id}</span></div></div><div class="tta-profitbox"><div class="tta-cardactions"><button class="tta-pin ${pinned?'active':''}" data-act="togglePin" data-id="${item.id}" aria-pressed="${pinned?'true':'false'}" aria-label="${pinned?'Unpin':'Pin'} ${esc(item.name)}" title="${pinned?'Unpin item':'Pin item to top'}">${pinned?'📌':'☆'}</button><button class="tta-hideitem" data-act="hideItem" data-id="${item.id}" aria-label="Hide ${esc(item.name)}" title="Hide item">🙈</button></div><div class="tta-profit ${s.profit>=0?'pos':'neg'}">${money(s.profit,true)}</div><div class="tta-chevron">${exp?'▲ details':'▼ details'}</div></div></div><div class="tta-metrics"><div class="tta-metric"><small>Acquired</small><b>${qty(s.bought)}</b></div><div class="tta-metric"><small>Sold</small><b>${qty(s.sold)}</b></div><div class="tta-metric"><small>Profit</small><b class="${s.profit>=0?'pos':'neg'}">${money(s.profit,true)}</b></div></div><div class="tta-accordion">${details}</div></div>`;
   }
@@ -529,7 +530,7 @@
     const hiddenHtml=hiddenItems.length?`<div class="tta-hiddenlist">${hiddenItems.map(x=>`<div class="tta-hiddenrow"><span>${esc(x.name)} <small>#${x.id}</small></span><button class="tta-btn secondary" data-act="restoreItem" data-id="${x.id}">Restore</button></div>`).join('')}</div><div class="tta-settings-actions"><button class="tta-btn secondary" data-act="restoreAllItems">Restore all hidden items</button></div>`:'<div class="tta-banner">No hidden items.</div>';
     return `${header('Settings','Storage, API access & reset',true)}<div class="tta-content tta-settings">
       <div class="tta-keycard"><div class="tta-keyhead"><strong>API Key</strong><span class="tta-keystatus">${esc(status)}</span></div><div class="tta-keyinputrow"><input id="tta-api-key" type="password" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your Torn API key" value="${esc(masked)}" data-placeholder-key="${state.apiKey?'1':'0'}"><button class="tta-btn" data-act="saveApiKey">Save & test</button></div><div class="tta-keynote">Stored only in this device's local storage and sent only to Torn's official API. It is never uploaded to GitHub or sent to us. Use a custom key with <strong>User → Log</strong>; for free-item history, do not restrict away categories such as Crime success, City finds, Mission rewards, Seasonal gift, and similar reward logs.</div>${state.apiKey?'<div class="tta-settings-actions"><button class="tta-btn danger" data-act="clearApiKey">Clear saved API key</button></div>':''}</div>
-      <div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Data storage: only locally on this device.<br>Data sharing: nobody.<br>Purpose: personal statistical analysis of automatically discovered item acquisitions and sales.<br>Key storage: locally only / not shared.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong>. Torn PDA's injected key remains supported as a fallback.</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.<br>Item catalog / market values updated: ${esc(catalogWhen)}.${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.pages||0)} pages · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.${state.sync.diagnostics.periodFrom?`<br>Period scanned: ${esc(dateStr(state.sync.diagnostics.periodFrom))} – ${esc(dateStr(Math.min(state.sync.diagnostics.periodTo||nowSec(),nowSec())))}`:'<br>Period scanned: all available history.'}`:''}</div><label>Hidden items · ${qty(hiddenItems.length)}</label>${hiddenHtml}<div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
+      <div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Data storage: only locally on this device.<br>Data sharing: nobody.<br>Purpose: personal statistical analysis of automatically discovered item acquisitions and sales.<br>Key storage: locally only / not shared.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong>. Torn PDA's injected key remains supported as a fallback.</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.<br>Item catalog / market values updated: ${esc(catalogWhen)}.${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.pages||0)} log pages · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.<br>Player trades: ${qty(state.sync.diagnostics.tradesWithItems||0)} with items · ${qty(state.sync.diagnostics.tradeDetails||0)} detailed trades fetched · ${qty(state.sync.diagnostics.tradeTransactions||0)} allocated item rows.${state.sync.diagnostics.periodFrom?`<br>Period scanned: ${esc(dateStr(state.sync.diagnostics.periodFrom))} – ${esc(dateStr(Math.min(state.sync.diagnostics.periodTo||nowSec(),nowSec())))}`:'<br>Period scanned: all available history.'}`:''}</div><label>Hidden items · ${qty(hiddenItems.length)}</label>${hiddenHtml}<div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
   }
 
 
@@ -694,6 +695,7 @@
   const byId=new Map();
   (all||[]).forEach(x=>{
     const id=Number(x?.id),title=String(x?.title||'');
+    if(/\btrade\b/i.test(title))return;
     if(id && ((paidContext.test(title) && paidAction.test(title)) || itemMovement.test(title) || freeContext.test(title) || KNOWN_TRANSACTION_LOGS.has(id))) byId.set(id,{...x,id});
   });
   KNOWN_TRANSACTION_LOGS.forEach((meta,id)=>{if(!byId.has(id))byId.set(id,{id,title:`${meta.source} ${meta.side}`});});
@@ -762,6 +764,7 @@
     const logTypeId=Number(entry.details?.id)||0;
     const known=KNOWN_TRANSACTION_LOGS.get(logTypeId);
     const title=entry.details?.title||'';
+    if(/\btrade\b/i.test(title))return[];
     const payload={...(entry.params||{}),...(entry.data||{})};
     const monetaryContext=!!known||/(item market|bazaar|abroad|foreign market|torn shop|auction)/i.test(title);
     const free=isFreeAcquisition(title,payload)&&!monetaryContext;
@@ -773,6 +776,87 @@
       const ratio=it.qty/totalQty; const total=totalAll*ratio; const feeShare=fee*ratio;
       return {id:`${entry.id}:${it.id}`,logId:logTypeId,timestamp:entry.timestamp,itemId:it.id,side,qty:it.qty,total,fee:feeShare,netTotal:side==='sell'?Math.max(0,total-feeShare):total,source:known?.source||sourceFrom(title),title,free};
     });
+  }
+
+
+  function tradeItemGroups(entries,userId,outgoing=true) {
+    const map=new Map(),me=Number(userId);
+    for(const entry of entries||[]){
+      if(entry?.type!=='Item')continue;
+      const owner=Number(entry?.user_id),mine=owner===me;
+      if((outgoing&&!mine)||(!outgoing&&mine))continue;
+      const id=Number(entry?.details?.id),amount=Number(entry?.details?.amount)||0;
+      if(!(id>0)||!(amount>0))continue;
+      const row=map.get(id)||{itemId:id,qty:0};row.qty+=amount;map.set(id,row);
+    }
+    return [...map.values()].map(row=>{
+      const marketPrice=Math.max(0,Number(catalogItem(row.itemId)?.marketPrice)||0);
+      return {...row,marketPrice,baseMarket:marketPrice*row.qty};
+    });
+  }
+
+  function tradeMoneyFor(entries,userId,owned=true) {
+    const me=Number(userId);let total=0;
+    for(const entry of entries||[]){
+      if(entry?.type!=='Money')continue;
+      const mine=Number(entry?.user_id)===me;if((owned&&!mine)||(!owned&&mine))continue;
+      total+=Math.max(0,Number(entry?.details?.amount)||0);
+    }
+    return total;
+  }
+
+  // Start from each item type's market-value subtotal, then distribute the cash
+  // surplus/deficit equally by item type. Negative allocations are floored at $0
+  // and the remaining deficit is redistributed evenly among the other item types.
+  function allocateTradeGroupTotals(groups,targetTotal) {
+    if(!groups?.length)return[];
+    const target=Math.max(0,Number(targetTotal)||0);
+    const values=groups.map(g=>Math.max(0,Number(g.baseMarket)||0));
+    const baseTotal=values.reduce((n,x)=>n+x,0);
+    let delta=target-baseTotal;
+    if(delta>=0){
+      const add=delta/values.length;for(let i=0;i<values.length;i++)values[i]+=add;
+    }else{
+      let deficit=-delta,active=values.map((_,i)=>i);
+      while(deficit>1e-7&&active.length){
+        const share=deficit/active.length,removed=[];
+        for(const i of active){if(values[i]<=share+1e-7){deficit-=values[i];values[i]=0;removed.push(i);}}
+        if(!removed.length){for(const i of active)values[i]-=share;deficit=0;}
+        else active=active.filter(i=>!removed.includes(i));
+      }
+    }
+    const correction=target-values.reduce((n,x)=>n+x,0);
+    if(values.length)values[values.length-1]=Math.max(0,values[values.length-1]+correction);
+    return groups.map((g,i)=>({...g,total:values[i],adjustment:values[i]-(Number(g.baseMarket)||0)}));
+  }
+
+  function parsePlayerTrade(trade,userId) {
+    const tradeId=Number(trade?.id)||0,ts=Number(trade?.completed_at||trade?.timestamp)||0,me=Number(userId);
+    const entries=Array.isArray(trade?.items)?trade.items:[];
+    if(!(tradeId>0)||!(ts>0)||!(me>0)||!entries.length)return[];
+    const outgoing=tradeItemGroups(entries,me,true),incoming=tradeItemGroups(entries,me,false);
+    if(!outgoing.length&&!incoming.length)return[];
+    const cashOut=tradeMoneyFor(entries,me,true),cashIn=tradeMoneyFor(entries,me,false),netCash=cashIn-cashOut;
+    const mvOut=outgoing.reduce((n,x)=>n+x.baseMarket,0),mvIn=incoming.reduce((n,x)=>n+x.baseMarket,0);
+    let saleTarget=0,buyTarget=0;
+    if(outgoing.length&&!incoming.length)saleTarget=Math.max(0,netCash);
+    else if(incoming.length&&!outgoing.length)buyTarget=Math.max(0,-netCash);
+    else if(outgoing.length&&incoming.length){
+      buyTarget=mvIn;saleTarget=mvIn+netCash;
+      if(saleTarget<0){saleTarget=mvOut;buyTarget=mvOut-netCash;}
+    }
+    const saleGroups=allocateTradeGroupTotals(outgoing,saleTarget),buyGroups=allocateTradeGroupTotals(incoming,buyTarget);
+    const user=trade?.user||{},trader=trade?.trader||{};
+    const other=Number(user?.id)===me?trader:user;
+    const tradeSurplus=(mvIn+cashIn)-(mvOut+cashOut);
+    const common={timestamp:ts,fee:0,source:'Player Trade',title:`Player Trade${other?.name?` with ${other.name}`:''}`,tradeId,counterpartyId:Number(other?.id)||0,counterpartyName:String(other?.name||''),tradeCashIn:cashIn,tradeCashOut:cashOut,tradeSurplus,allocationMethod:'market-value + equal cash delta'};
+    const sold=saleGroups.map(g=>({id:`trade:${tradeId}:1:sell:${g.itemId}`,logId:0,itemId:g.itemId,side:'sell',qty:g.qty,total:g.total,netTotal:g.total,free:false,marketPriceUsed:g.marketPrice,marketSubtotal:g.baseMarket,tradeAdjustment:g.adjustment,...common}));
+    const bought=buyGroups.map(g=>({id:`trade:${tradeId}:2:buy:${g.itemId}`,logId:0,itemId:g.itemId,side:'buy',qty:g.qty,total:g.total,netTotal:g.total,free:g.total<=1e-7,marketPriceUsed:g.marketPrice,marketSubtotal:g.baseMarket,tradeAdjustment:g.adjustment,...common}));
+    return [...sold,...bought];
+  }
+
+  function isLegacyTradeLogTransaction(t) {
+    return t?.source!=='Player Trade'&&/\btrade\b/i.test(String(t?.title||''));
   }
 
   function nextLogPageParams(data,currentParams) {
@@ -852,6 +936,35 @@
     }
   }
 
+
+  async function fetchCompletedTradeHeaders(period) {
+    let params={cat:'finished',limit:100,sort:'DESC',to:period.to};if(period.from>0)params.from=period.from;
+    const found=new Map(),seenPages=new Set();let pages=0;
+    while(!state.syncCancel){
+      pages++;setSyncProgress(`Player trades · list page ${pages} · ${qty(found.size)} completed trades found`);
+      const data=await apiGet('/user/trades',params),rows=Array.isArray(data?.trades)?data.trades:[];
+      for(const row of rows){const ts=Number(row?.completed_at||row?.timestamp)||0,id=Number(row?.id)||0;if(id>0&&ts>=period.from&&ts<=period.to)found.set(id,row);}
+      const next=nextLogPageParams(data,params);if(!next||!rows.length)break;
+      const sig=JSON.stringify(Object.keys(next).sort().map(k=>[k,next[k]]));if(seenPages.has(sig))break;seenPages.add(sig);params=next;
+      await sleep(REQUEST_GAP_MS);
+    }
+    return {headers:[...found.values()],pages};
+  }
+
+  async function fetchPlayerTradeHistory(period,userId) {
+    const listed=await fetchCompletedTradeHeaders(period),transactions=[];
+    let details=0,tradesWithItems=0;
+    for(let i=0;i<listed.headers.length&&!state.syncCancel;i++){
+      const h=listed.headers[i],summaryItems=Number(h?.items);
+      if(Number.isFinite(summaryItems)&&summaryItems===0)continue;
+      setSyncProgress(`Player trades · ${i+1}/${listed.headers.length} · ${qty(transactions.length)} allocated item rows`);
+      const data=await apiGet(`/user/${Number(h.id)}/trade`);details++;
+      const rows=parsePlayerTrade(data?.trade,userId);if(rows.length){tradesWithItems++;transactions.push(...rows);}
+      if(i<listed.headers.length-1&&!state.syncCancel)await sleep(REQUEST_GAP_MS);
+    }
+    return {transactions,diagnostics:{tradeHeaders:listed.headers.length,tradeListPages:listed.pages,tradeDetails:details,tradesWithItems,tradeTransactions:transactions.length}};
+  }
+
   async function fetchFilteredHistory(logIds,period) {
     const found=new Map();
     const diagnostics={rawRows:0,parsedRows:0,matchedRows:0,batches:Math.ceil(logIds.length/MAX_LOG_IDS_PER_REQUEST),logTypes:logIds.length,pages:0,oldestTimestamp:0,mode:'filtered',periodFrom:period.from,periodTo:period.to};
@@ -887,8 +1000,11 @@
       setSyncProgress(`Scanning the complete selected period: ${periodText}…`);
       let scan=await fetchFilteredHistory(types.map(x=>x.id),period);
       if(scan.diagnostics.rawRows===0){setSyncProgress('Filtered period scan returned no raw rows. Trying compatibility scan for the same dates…');scan=await fetchUnfilteredHistory(period);}
-      scan.diagnostics.keyType=keyInfo.type;scan.diagnostics.keyLevel=keyInfo.level;scan.diagnostics.keySource=keySource();scan.diagnostics.customLogPermissions=keyInfo.customLogPermissions;scan.diagnostics.probeRows=probe.rows.length;
-      const fresh=scan.transactions,outside=state.transactions.filter(t=>Number(t.timestamp)<period.from||Number(t.timestamp)>period.to),merged=new Map(outside.map(x=>[x.id,x]));fresh.forEach(x=>merged.set(x.id,x));
+      setSyncProgress(`Scanning completed player trades for ${periodText}…`);
+      const tradeScan=await fetchPlayerTradeHistory(period,keyInfo.userId);
+      scan.transactions=[...scan.transactions,...tradeScan.transactions];
+      scan.diagnostics.keyType=keyInfo.type;scan.diagnostics.keyLevel=keyInfo.level;scan.diagnostics.keySource=keySource();scan.diagnostics.customLogPermissions=keyInfo.customLogPermissions;scan.diagnostics.probeRows=probe.rows.length;Object.assign(scan.diagnostics,tradeScan.diagnostics);
+      const fresh=scan.transactions,outside=state.transactions.filter(t=>!isLegacyTradeLogTransaction(t)&&(Number(t.timestamp)<period.from||Number(t.timestamp)>period.to)),merged=new Map(outside.map(x=>[x.id,x]));fresh.forEach(x=>merged.set(x.id,x));
       state.transactions=[...merged.values()].sort((a,b)=>a.timestamp-b.timestamp);save('transactions',state.transactions);resetAnalyticsCache();
       state.sync.lastSync=nowSec();state.sync.firstSyncComplete=!state.syncCancel;state.sync.autoDiscoveryComplete=!state.syncCancel;
       if(!state.syncCancel){const oldCoverage=Number(state.sync.coverageFrom);state.sync.coverageFrom=Number.isFinite(oldCoverage)?Math.min(oldCoverage,period.from):period.from;state.sync.coverageTo=Math.max(Number(state.sync.coverageTo)||0,Math.min(period.to,nowSec()));}
@@ -896,7 +1012,7 @@
       const mode=scan.diagnostics.mode==='unfiltered-fallback'?'compatibility scan':'filtered scan';
       if(state.syncCancel)setSyncProgress(`Sync stopped · ${qty(scan.diagnostics.rawRows)} raw logs scanned · ${qty(fresh.length)} item rows collected.`);
       else if(!fresh.length)setSyncProgress(`${mode} completed for ${periodText} · ${qty(scan.diagnostics.rawRows)} raw logs scanned · no recognizable item acquisitions or sales found.`);
-      else setSyncProgress(`Historical sync complete for ${periodText} · ${qty(fresh.length)} item rows · ${qty(scan.diagnostics.rawRows)} raw logs across ${qty(scan.diagnostics.pages)} pages.`);
+      else setSyncProgress(`Historical sync complete for ${periodText} · ${qty(fresh.length)} item rows · ${qty(scan.diagnostics.tradesWithItems||0)} player trades · ${qty(scan.diagnostics.rawRows)} raw logs across ${qty(scan.diagnostics.pages)} log pages.`);
     }catch(e){setSyncProgress(`Sync error: ${e.message}`);}
     finally{state.syncing=false;setBusy(false);render();}
   }
