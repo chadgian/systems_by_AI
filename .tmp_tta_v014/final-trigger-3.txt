@@ -1,1 +1,0 @@
-Run the registered verifier with the marker-based patch.
