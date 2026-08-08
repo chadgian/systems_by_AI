@@ -19,7 +19,15 @@ jobs:
       - name: Rebuild verified userscript on PR branch
         shell: bash
         run: |
-          cat .tmp_tta_v014/gz00.b64 .tmp_tta_v014/gz01.b64 .tmp_tta_v014/gz02.b64 .tmp_tta_v014/gz03.b64 .tmp_tta_v014/gz04.b64 .tmp_tta_v014/gz05.b64 > /tmp/tta.b64
+          for f in .tmp_tta_v014/gz00.b64 .tmp_tta_v014/gz01.b64 .tmp_tta_v014/gz02.b64 .tmp_tta_v014/gz03.b64 .tmp_tta_v014/gz04.b64 .tmp_tta_v014/gz05.b64; do
+            printf '%s: ' "$f"
+            wc -c < "$f"
+            bad="$(LC_ALL=C tr -d 'A-Za-z0-9+/=\r\n\t ' < "$f" | wc -c)"
+            echo "non-base64-bytes: $bad"
+          done
+          cat .tmp_tta_v014/gz00.b64 .tmp_tta_v014/gz01.b64 .tmp_tta_v014/gz02.b64 .tmp_tta_v014/gz03.b64 .tmp_tta_v014/gz04.b64 .tmp_tta_v014/gz05.b64 | tr -d '\r\n\t ' > /tmp/tta.b64
+          echo "combined-base64-bytes: $(wc -c < /tmp/tta.b64)"
+          test "$(wc -c < /tmp/tta.b64)" = "22856"
           base64 -d /tmp/tta.b64 > /tmp/tta.js.gz
           gzip -t /tmp/tta.js.gz
           gzip -dc /tmp/tta.js.gz > torn-trade-analyzer.user.js
