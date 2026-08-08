@@ -1,0 +1,1 @@
+Apply and verify the Torn Trade Analyzer v0.1.4 compatibility patch on this branch.
