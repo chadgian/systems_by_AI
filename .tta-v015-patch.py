@@ -1,0 +1,121 @@
+from pathlib import Path
+import subprocess
+
+p=Path('torn-trade-analyzer.user.js')
+s=p.read_text()
+assert '// @version      0.1.4' in s
+assert "const VERSION = '0.1.4';" in s
+s=s.replace('// @version      0.1.4','// @version      0.1.5',1)
+s=s.replace("const VERSION = '0.1.4';","const VERSION = '0.1.5';",1)
+
+assert '  async function fetchHistory(logIds) {' in s
+s=s.replace('  async function fetchHistory(logIds) {','  async function fetchFilteredHistory(logIds) {',1)
+
+marker='  async function fetchFilteredHistory(logIds) {'
+helper=r'''  async function inspectActiveKey() {
+    const raw=await apiGet('/key/info');
+    const info=raw?.info||{};
+    const access=info?.access||{};
+    const logAccess=access?.log||{};
+    const userSelections=Array.isArray(info?.selections?.user)?info.selections.user:[];
+    return {
+      type:String(access?.type||''),
+      level:Number(access?.level)||0,
+      hasUserLog:userSelections.includes('log') || Number(access?.level)>=4,
+      customLogPermissions:!!logAccess?.custom_permissions,
+      availableLogGroups:Array.isArray(logAccess?.available)?logAccess.available.length:0,
+      userId:Number(info?.user?.id)||0
+    };
+  }
+
+  async function probeUserLogs() {
+    const data=await apiGet('/user/log',{limit:100});
+    return {data,rows:Array.isArray(data?.log)?data.log:[]};
+  }
+
+'''
+assert marker in s
+s=s.replace(marker,helper+marker,1)
+
+a=s.index('  async function syncAll() {')
+b=s.index('\n\n  function demoCatalog',a)
+new_block=r'''  async function fetchUnfilteredHistory(firstPage=null) {
+    const found=new Map();
+    const diagnostics={rawRows:0,parsedRows:0,matchedRows:0,batches:1,logTypes:0,mode:'unfiltered-fallback'};
+    let params={limit:100};
+    let page=0,previousSignature='',data=firstPage;
+    while(!state.syncCancel){
+      page++;
+      if(!data)data=await apiGet('/user/log',params);
+      const rows=Array.isArray(data?.log)?data.log:[];
+      diagnostics.rawRows+=rows.length;
+      state.syncProgress=`Fallback history scan · page ${page} · ${qty(diagnostics.rawRows)} raw logs · ${qty(found.size)} matching rows`;render();
+      if(!rows.length)break;
+      rows.forEach(r=>{
+        const parsed=parseLogEntry(r);
+        diagnostics.parsedRows+=parsed.length;
+        parsed.forEach(t=>{found.set(t.id,t);diagnostics.matchedRows++;});
+      });
+      const nextParams=nextLogPageParams(data,params);
+      if(!nextParams)break;
+      const signature=JSON.stringify(nextParams);
+      if(signature===previousSignature)break;
+      previousSignature=signature;params=nextParams;data=null;
+      await sleep(REQUEST_GAP_MS);
+    }
+    return {transactions:[...found.values()],diagnostics};
+  }
+
+  async function syncAll() {
+    if(state.syncing)return;
+    if(!state.tracked.length){toast('Add at least one item first.');return;}
+    if(!hasApiKey()){state.demo=true;toast('Add a Torn API key in Settings → API Key to sync real history.');render();return;}
+    state.syncing=true;state.syncCancel=false;state.syncProgress='Verifying active API key and probing Torn logs…';render();
+    try {
+      await ensureCatalog();
+      const keyInfo=await inspectActiveKey();
+      const probe=await probeUserLogs();
+      if(!probe.rows.length){
+        throw new Error(`Torn returned 0 user logs even without any log filter. Active key reports ${keyInfo.type||'unknown'} access (level ${keyInfo.level||'?'}), source: ${keySource()}. This is not an item-parser failure.`);
+      }
+      const types=relevantLogTypes(await ensureLogTypes(true));
+      if(!types.length) throw new Error('No relevant Torn transaction or free-acquisition log types were detected.');
+      state.syncProgress=`Unfiltered probe succeeded with ${qty(probe.rows.length)} recent logs. Testing ${qty(types.length)} transaction-related log types…`;render();
+      let scan=await fetchFilteredHistory(types.map(x=>x.id));
+      if(scan.diagnostics.rawRows===0 && probe.rows.length){
+        state.syncProgress='Torn returned logs generally but zero for filtered batches. Switching to compatibility fallback…';render();
+        scan=await fetchUnfilteredHistory(probe.data);
+      } else {
+        scan.diagnostics.mode='filtered';
+      }
+      scan.diagnostics.keyType=keyInfo.type;
+      scan.diagnostics.keyLevel=keyInfo.level;
+      scan.diagnostics.keySource=keySource();
+      scan.diagnostics.customLogPermissions=keyInfo.customLogPermissions;
+      scan.diagnostics.probeRows=probe.rows.length;
+      const fresh=scan.transactions;
+      const merged=new Map(state.transactions.map(x=>[x.id,x])); fresh.forEach(x=>merged.set(x.id,x));
+      state.transactions=[...merged.values()].filter(t=>state.tracked.some(i=>Number(i.id)===Number(t.itemId))).sort((a,b)=>a.timestamp-b.timestamp);
+      save('transactions',state.transactions);state.sync.lastSync=nowSec();state.sync.firstSyncComplete=!state.syncCancel;state.sync.diagnostics=scan.diagnostics;save('sync',state.sync);
+      const mode=scan.diagnostics.mode==='unfiltered-fallback'?'compatibility fallback':'filtered scan';
+      if(state.syncCancel) state.syncProgress=`Sync stopped · ${qty(scan.diagnostics.rawRows)} raw logs scanned · ${qty(fresh.length)} matching rows collected.`;
+      else if(!fresh.length) state.syncProgress=`${mode} completed · ${qty(scan.diagnostics.rawRows)} raw logs scanned but no tracked-item rows parsed. Key: ${keyInfo.type||'unknown'} level ${keyInfo.level||'?'}.`;
+      else state.syncProgress=`Historical sync complete via ${mode} · ${qty(state.transactions.length)} tracked rows stored · ${qty(scan.diagnostics.rawRows)} raw logs scanned.`;
+    } catch(e) {
+      state.syncProgress=`Sync error: ${e.message}`;
+    } finally {state.syncing=false;render();}
+  }'''
+s=s[:a]+new_block+s[b:]
+
+old="try{await apiGet('/user/log',{limit:1});state.catalog=[];state.catalogVersion=0;save('catalog',[]);save('catalogVersion',0);await ensureCatalog(true);if(state.tracked.length){toast('API key confirmed. Starting historical sync…');await syncAll();}else toast('API key saved and User → Log access confirmed.');}"
+new="try{const info=await inspectActiveKey();await apiGet('/user/log',{limit:1});state.catalog=[];state.catalogVersion=0;save('catalog',[]);save('catalogVersion',0);await ensureCatalog(true);if(state.tracked.length){toast(`API key confirmed (${info.type||'access level '+info.level}). Starting historical sync…`);await syncAll();}else toast(`API key saved · ${info.type||'access level '+info.level}.`);}"
+assert old in s
+s=s.replace(old,new,1)
+
+p.write_text(s)
+r=subprocess.run(['node','--check',str(p)],text=True,capture_output=True)
+if r.returncode:
+    raise SystemExit(r.stderr or r.stdout)
+for needle in ['@version      0.1.5','probeUserLogs','fetchUnfilteredHistory',"mode:'unfiltered-fallback'"]:
+    assert needle in s, needle
+print('PATCH_OK v0.1.5 syntax and markers verified')
