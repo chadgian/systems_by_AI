@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn Trade Analyzer
 // @namespace    chadgian.torn.trade.analyzer
-// @version      0.1.5
-// @description  Track selected Torn items, backfill buy/sell logs, calculate FIFO realized profit, and chart profit by day/week/month. Data stays on-device.
+// @version      0.1.6
+// @description  Automatically discover items from Torn history, calculate FIFO realized profit, and chart profit by day/week/month. Data stays on-device.
 // @author       chadgian + ChatGPT
 // @match        https://www.torn.com/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.1.5';
+  const VERSION = '0.1.6';
   const API_KEY = '_###PDA-APIKEY###_';
   const NS = 'tta:v1:';
   const API = 'https://api.torn.com/v2';
@@ -45,6 +45,9 @@
     logTypes: load('logTypes', []),
     apiKey: load('apiKey', ''),
     fabPosition: load('fabPosition', null),
+    pinnedIds: load('pinnedIds', []),
+    itemSearch: load('itemSearch', ''),
+    sortMode: load('sortMode', 'recent'),
     sync: load('sync', { lastSync: 0, firstSyncComplete: false }),
     dateMode: load('dateMode', '30d'),
     customFrom: load('customFrom', ''),
@@ -154,6 +157,8 @@
       .tta-chartcard{background:linear-gradient(180deg,#151f2a,#10171f);border:1px solid var(--tta-line);border-radius:16px;padding:13px 11px 11px;margin-bottom:14px;overflow:hidden}.tta-charthead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}.tta-charthead h3{margin:0;color:var(--tta-text);font-size:13px;line-height:1.3}.tta-charthead small{color:var(--tta-muted)!important;font-size:10px}.tta-seg{display:flex;align-items:center;justify-content:center;background:#090e14;border:1px solid var(--tta-line);border-radius:10px;padding:2px}.tta-seg button{display:inline-flex;align-items:center;justify-content:center;min-height:30px;border:0;background:transparent;color:var(--tta-muted)!important;font-size:10px;font-weight:800;padding:6px 8px;border-radius:7px}.tta-seg button.active{background:var(--tta-soft);color:var(--tta-text)!important}.tta-svg{width:100%;height:160px;display:block;overflow:visible}.tta-axis{fill:#d6e1eb!important;color:#d6e1eb!important;font-size:10px;font-weight:650;paint-order:stroke;stroke:#10171f;stroke-width:1.5px;stroke-linejoin:round}.tta-zero{stroke:#7c91a4;stroke-width:1.25}.tta-bar-pos{fill:var(--tta-green)}.tta-bar-neg{fill:var(--tta-red)}.tta-grid{stroke:#344657;stroke-width:1}.tta-empty{min-height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;color:var(--tta-muted);font-size:12px;line-height:1.5;padding:18px}
       .tta-sectionhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 1px 10px}.tta-sectionhead h3{color:var(--tta-text);font-size:14px;margin:0;line-height:1.3}.tta-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;border:1px solid transparent;border-radius:10px;padding:8px 12px;font-size:11px;font-weight:850;text-align:center;background:var(--tta-green);color:#052016!important;white-space:nowrap}.tta-btn:active{transform:scale(.98)}.tta-btn.secondary{background:var(--tta-card);border-color:var(--tta-line);color:var(--tta-text)!important}.tta-btn.danger{background:#35181e;color:#ffc3c9!important;border-color:#71313d}.tta-btn:disabled{opacity:.55;transform:none}
       .tta-item{background:var(--tta-card);border:1px solid var(--tta-line);border-radius:15px;margin-bottom:10px;overflow:hidden}.tta-itemtop{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:11px;align-items:center;min-height:70px;padding:10px 11px;cursor:pointer}.tta-thumbwrap{position:relative;width:48px;height:48px;display:grid;place-items:center;align-self:center;justify-self:center;background:#0b1219;border:1px solid #2e4152;border-radius:12px;overflow:hidden}.tta-thumb{display:block;width:40px;height:40px;max-width:40px;max-height:40px;object-fit:contain;object-position:center;padding:0;margin:0;background:transparent;border:0}.tta-thumbfallback{display:none;position:absolute;inset:0;place-items:center;color:var(--tta-faint);font-size:20px}.tta-itemcopy{min-width:0;align-self:center}.tta-itemname{color:var(--tta-text);font-weight:850;font-size:13px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tta-source{font-size:10px;color:var(--tta-muted);margin-top:4px;line-height:1.35;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.tta-profitbox{min-width:72px;text-align:right;align-self:center}.tta-profit{font-size:13px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.25}.tta-chevron{font-size:10px;color:var(--tta-muted);margin-top:4px;line-height:1.2}.tta-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--tta-line);border-top:1px solid var(--tta-line)}.tta-metric{background:#111922;padding:9px 7px;text-align:center;min-width:0}.tta-metric small{display:block;color:var(--tta-muted);font-size:9px;text-transform:uppercase;letter-spacing:.55px;line-height:1.3}.tta-metric b{display:block;margin-top:3px;color:var(--tta-text);font-size:12px;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}.tta-accordion{display:none;padding:12px;border-top:1px solid var(--tta-line);background:#0f161e}.tta-item.expanded .tta-accordion{display:block}.tta-minirow{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:11px}.tta-ministat{background:#151f2a;border:1px solid var(--tta-line);border-radius:10px;padding:9px 6px;text-align:center;min-width:0}.tta-ministat small{display:block;font-size:9px;color:var(--tta-muted);line-height:1.25}.tta-ministat b{display:block;margin-top:3px;color:var(--tta-text);font-size:11px;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}.tta-note{font-size:10px;color:var(--tta-muted);margin-top:9px;line-height:1.5}.tta-linkrow{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:11px}
+      .tta-listtools{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;margin:8px 0 4px}.tta-history-search{width:100%;min-height:42px;border-radius:11px;border:1px solid var(--tta-line);background:var(--tta-card);color:var(--tta-text)!important;padding:10px 12px;font-size:12px;outline:none}.tta-history-search::placeholder{color:var(--tta-faint)}.tta-history-search:focus{border-color:var(--tta-blue);box-shadow:0 0 0 2px #7fc1ff22}.tta-sortbtn{min-width:118px}.tta-pin{display:grid;place-items:center;width:31px;height:31px;min-width:31px;min-height:31px;margin:0 0 4px auto;padding:0;border:1px solid var(--tta-line);border-radius:9px;background:#0d151d;color:var(--tta-muted)!important;font-size:15px;line-height:1}.tta-pin.active{background:#2a2513;border-color:#71632e;color:var(--tta-yellow)!important}.tta-listmeta{font-size:10px;color:var(--tta-muted);text-align:center;margin:0 0 10px}
+      @media(max-width:460px){.tta-listtools{grid-template-columns:1fr}.tta-sortbtn{width:100%}}
       .tta-search{position:sticky;top:62px;z-index:3;background:var(--tta-bg);padding:4px 0 11px}.tta-search input{width:100%;min-height:44px;border-radius:12px;border:1px solid var(--tta-line);background:var(--tta-card);color:var(--tta-text)!important;font-size:13px;padding:11px 13px;outline:none}.tta-search input::placeholder{color:#91a5b7;opacity:1}.tta-search input:focus{border-color:var(--tta-blue);box-shadow:0 0 0 2px #7fc1ff22}.tta-result{display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:11px;background:var(--tta-card);border:1px solid var(--tta-line);border-radius:13px;padding:9px 10px;margin-bottom:8px;min-height:68px}.tta-resultcopy{min-width:0}.tta-result small{display:block;margin-top:3px;color:var(--tta-muted);font-size:10px;line-height:1.3}.tta-catalogmeta{display:flex;align-items:center;justify-content:center;text-align:center;color:var(--tta-muted);font-size:10px;margin:3px 0 10px}
       .tta-banner{background:#152330;border:1px solid #36556d;border-radius:13px;padding:11px 12px;margin-bottom:11px;font-size:10px;line-height:1.5;color:#d0dce7}.tta-banner strong{color:#fff}.tta-sync{display:inline-flex;align-items:center;justify-content:center;gap:8px}.tta-spinner{width:13px;height:13px;border:2px solid #ffffff44;border-top-color:#fff;border-radius:50%;animation:tta-spin .8s linear infinite}@keyframes tta-spin{to{transform:rotate(360deg)}}
       .tta-keycard{background:#111a23;border:1px solid var(--tta-line);border-radius:14px;padding:12px;margin:12px 0}.tta-keyhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.tta-keyhead strong{font-size:13px;color:var(--tta-text)}.tta-keystatus{font-size:9px;font-weight:800;color:var(--tta-green);background:#18352b;border:1px solid #2c5b49;border-radius:999px;padding:4px 7px}.tta-keyinputrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:center}.tta-keyinputrow input{width:100%;min-height:42px;background:var(--tta-card);border:1px solid var(--tta-line);color:var(--tta-text)!important;border-radius:10px;padding:10px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.5px}.tta-keynote{font-size:10px;line-height:1.5;color:var(--tta-muted);margin-top:8px}
@@ -221,9 +226,44 @@
     if (state.transactions.length || !state.demo) return state.transactions;
     return demoTransactions();
   }
+  function catalogItem(id) {
+    id=Number(id);
+    const found=(state.catalog||[]).find(x=>Number(x.id)===id);
+    return found || {id,name:`Item #${id}`,type:'Item',image:`https://www.torn.com/images/items/${id}/large.png`,marketPrice:0};
+  }
   function effectiveTracked() {
-    if (state.tracked.length || !state.demo) return state.tracked;
-    return demoTracked();
+    const tx=effectiveTransactions();
+    const ids=[...new Set(tx.map(x=>Number(x.itemId)).filter(x=>x>0))];
+    if(!ids.length && state.demo)return demoTracked();
+    return ids.map(catalogItem).sort((a,b)=>a.name.localeCompare(b.name)||a.id-b.id);
+  }
+  const SORT_OPTIONS=[
+    {id:'recent',label:'Recent'},
+    {id:'profit',label:'Profit'},
+    {id:'acquired',label:'Acquired'},
+    {id:'sold',label:'Sold'},
+    {id:'name',label:'Name'}
+  ];
+  function sortLabel(){return SORT_OPTIONS.find(x=>x.id===state.sortMode)?.label||'Recent';}
+  function historyItemRows() {
+    const q=String(state.itemSearch||'').trim().toLowerCase();
+    const pinned=new Set((state.pinnedIds||[]).map(Number));
+    const lastById=new Map();
+    effectiveTransactions().forEach(t=>{const id=Number(t.itemId),ts=Number(t.timestamp)||0;if(id>0&&ts>(lastById.get(id)||0))lastById.set(id,ts);});
+    const rows=effectiveTracked()
+      .filter(item=>!q || item.name.toLowerCase().includes(q) || String(item.id).includes(q))
+      .map(item=>({item,summary:summaryFor(item.id),lastActivity:lastById.get(Number(item.id))||0,pinned:pinned.has(Number(item.id))}));
+    rows.sort((a,b)=>{
+      if(a.pinned!==b.pinned)return a.pinned?-1:1;
+      let d=0;
+      if(state.sortMode==='profit')d=b.summary.profit-a.summary.profit;
+      else if(state.sortMode==='acquired')d=b.summary.bought-a.summary.bought;
+      else if(state.sortMode==='sold')d=b.summary.sold-a.summary.sold;
+      else if(state.sortMode==='name')d=a.item.name.localeCompare(b.item.name);
+      else d=b.lastActivity-a.lastActivity;
+      return d || a.item.name.localeCompare(b.item.name) || a.item.id-b.item.id;
+    });
+    return rows;
   }
 
   function dateRange() {
@@ -311,27 +351,32 @@
 
 
   function dashboardHtml() {
-    const s=overall(), tracked=effectiveTracked(), range=dateRange();
+    const s=overall(), rows=historyItemRows(), allItems=effectiveTracked(), range=dateRange();
+    const pinnedCount=(state.pinnedIds||[]).filter(id=>allItems.some(x=>Number(x.id)===Number(id))).length;
     const periodLabel = state.dateMode==='all'?'All available history':`${dateStr(range.from)} – ${dateStr(Math.min(range.to,nowSec()))}`;
     return `${header('Trade Analyzer', `v${VERSION} · FIFO realized profit`)}<div class="tta-content">
       ${!hasApiKey()?`<div class="tta-banner"><strong>Preview mode.</strong> Add your Torn API key in <strong>Settings → API Key</strong> (or use Torn PDA's injected key) to load your real history. The key and analyzed data stay on this device.</div>`:''}
+      ${hasApiKey()&&!state.sync?.autoDiscoveryComplete?`<div class="tta-banner"><strong>v${VERSION} auto-discovery:</strong> Run Sync once to discover every recognizable item in your Torn acquisition and sale history. Manual item tracking is no longer required.</div>`:''}
       <div class="tta-period"><div><small>Date period</small><br><strong>${esc(periodLabel)}</strong></div><button class="tta-btn secondary" data-act="sync" ${state.syncing?'disabled':''}>${state.syncing?'<span class="tta-sync"><span class="tta-spinner"></span>Syncing</span>':'↻ Sync'}</button></div>
       ${state.syncProgress?`<div class="tta-banner">${esc(state.syncProgress)} ${state.syncing?'<button class="tta-btn danger" data-act="cancelSync" style="min-height:30px;padding:5px 9px;margin-left:8px;vertical-align:middle">Stop</button>':''}</div>`:''}
       <div class="tta-chips">${[['7d','7 days'],['30d','30 days'],['month','This month'],['all','All'],['custom','Custom']].map(([k,l])=>`<button class="tta-chip ${state.dateMode===k?'active':''}" data-date="${k}">${l}</button>`).join('')}</div>
       ${state.dateMode==='custom'?`<div class="tta-customdates"><input type="date" data-custom="from" value="${esc(state.customFrom)}"><input type="date" data-custom="to" value="${esc(state.customTo)}"></div>`:''}
       <div class="tta-summary"><div class="tta-stat main"><label>Realized profit</label><b class="${s.profit>=0?'pos':'neg'}">${money(s.profit)}</b></div><div class="tta-stat"><label>Acquired</label><b>${qty(s.bought)}</b></div><div class="tta-stat"><label>Sold</label><b>${qty(s.sold)}</b></div></div>
       <div class="tta-chartcard"><div class="tta-charthead"><h3>Profit earned</h3><div class="tta-seg">${['day','week','month'].map(g=>`<button class="${state.granularity===g?'active':''}" data-gran="${g}">${g[0].toUpperCase()+g.slice(1)}</button>`).join('')}</div></div>${chartSvg(profitSeries())}</div>
-      <div class="tta-sectionhead"><h3>Tracked items · ${tracked.length}</h3><button class="tta-btn" data-act="addItem">＋ Add item</button></div>
-      ${tracked.length?tracked.map(itemCard).join(''):`<div class="tta-empty">No tracked items yet.<br><button class="tta-btn" data-act="addItem">Add your first item</button></div>`}
+      <div class="tta-sectionhead"><h3>Items in your history · ${allItems.length}</h3></div>
+      <div class="tta-listtools"><input id="tta-history-search" class="tta-history-search" placeholder="Search item name or ID…" value="${esc(state.itemSearch||'')}" autocomplete="off" aria-label="Search discovered items"><button class="tta-btn secondary tta-sortbtn" data-act="cycleSort">⇅ Sort: ${esc(sortLabel())}</button></div>
+      <div class="tta-listmeta">${qty(rows.length)} shown · ${qty(pinnedCount)} pinned · pins always stay on top</div>
+      ${rows.length?rows.map(r=>itemCard(r.item,r.summary)).join(''):`<div class="tta-empty">${allItems.length?'No items match your search.':'No item history has been discovered yet. Press Sync to scan your Torn logs.'}</div>`}
     </div>`;
   }
 
-  function itemCard(item) {
-    const s=summaryFor(item.id), exp=Number(state.expanded)===Number(item.id), series=profitSeries(item.id);
+  function itemCard(item, precomputed=null) {
+    const s=precomputed||summaryFor(item.id), exp=Number(state.expanded)===Number(item.id), series=profitSeries(item.id);
+    const pinned=(state.pinnedIds||[]).map(Number).includes(Number(item.id));
     const src=s.sources.length?s.sources.slice(0,3).join(' · '):'No acquisitions in selected period';
     const avgBuy=s.bought?s.buySpend/s.bought:0, avgSell=s.sold?s.sellRevenue/s.sold:0;
     const freeQty=s.events.filter(x=>x.side==='buy'&&x.free).reduce((n,x)=>n+x.qty,0);
-    return `<div class="tta-item ${exp?'expanded':''}" data-item="${item.id}"><div class="tta-itemtop" data-act="toggleItem" data-id="${item.id}" role="button" tabindex="0" aria-expanded="${exp?'true':'false'}">${itemIcon(item)}<div class="tta-itemcopy"><div class="tta-itemname">${esc(item.name)}</div><div class="tta-source">${esc(src)}</div></div><div class="tta-profitbox"><div class="tta-profit ${s.profit>=0?'pos':'neg'}">${money(s.profit,true)}</div><div class="tta-chevron">${exp?'▲ details':'▼ details'}</div></div></div><div class="tta-metrics"><div class="tta-metric"><small>Acquired</small><b>${qty(s.bought)}</b></div><div class="tta-metric"><small>Sold</small><b>${qty(s.sold)}</b></div><div class="tta-metric"><small>Profit</small><b class="${s.profit>=0?'pos':'neg'}">${money(s.profit,true)}</b></div></div><div class="tta-accordion"><div class="tta-minirow"><div class="tta-ministat"><small>Avg cost</small><b>${money(avgBuy,true)}</b></div><div class="tta-ministat"><small>Avg sell</small><b>${money(avgSell,true)}</b></div><div class="tta-ministat"><small>Inventory</small><b>${qty(s.remainingQty)}</b></div></div><div class="tta-charthead"><h3>${esc(item.name)} profit</h3><small>${s.events.length} events</small></div>${chartSvg(series,92)}<div class="tta-note">Profit uses FIFO: each sale is matched against your oldest recorded purchases. ${s.unmatched?`⚠ ${qty(s.unmatched)} sold item(s) have no earlier recorded purchase cost, so those units are excluded from realized profit.`:'All sold units in this period have recorded cost basis.'}${freeQty?` · ${qty(freeQty)} free-acquired item(s) use a $0 cost basis.`:''}</div>${!state.demo?`<div class="tta-linkrow"><button class="tta-btn danger" data-act="removeItem" data-id="${item.id}">Remove</button></div>`:''}</div></div>`;
+    return `<div class="tta-item ${exp?'expanded':''}" data-item="${item.id}"><div class="tta-itemtop" data-act="toggleItem" data-id="${item.id}" role="button" tabindex="0" aria-expanded="${exp?'true':'false'}">${itemIcon(item)}<div class="tta-itemcopy"><div class="tta-itemname">${esc(item.name)}</div><div class="tta-source">${esc(src)}</div></div><div class="tta-profitbox"><button class="tta-pin ${pinned?'active':''}" data-act="togglePin" data-id="${item.id}" aria-pressed="${pinned?'true':'false'}" title="${pinned?'Unpin item':'Pin item to top'}">${pinned?'📌':'☆'}</button><div class="tta-profit ${s.profit>=0?'pos':'neg'}">${money(s.profit,true)}</div><div class="tta-chevron">${exp?'▲ details':'▼ details'}</div></div></div><div class="tta-metrics"><div class="tta-metric"><small>Acquired</small><b>${qty(s.bought)}</b></div><div class="tta-metric"><small>Sold</small><b>${qty(s.sold)}</b></div><div class="tta-metric"><small>Profit</small><b class="${s.profit>=0?'pos':'neg'}">${money(s.profit,true)}</b></div></div><div class="tta-accordion"><div class="tta-minirow"><div class="tta-ministat"><small>Avg cost</small><b>${money(avgBuy,true)}</b></div><div class="tta-ministat"><small>Avg sell</small><b>${money(avgSell,true)}</b></div><div class="tta-ministat"><small>Inventory</small><b>${qty(s.remainingQty)}</b></div></div><div class="tta-charthead"><h3>${esc(item.name)} profit</h3><small>${s.events.length} events</small></div>${chartSvg(series,92)}<div class="tta-note">Profit uses FIFO: each sale is matched against your oldest recorded purchases. ${s.unmatched?`⚠ ${qty(s.unmatched)} sold item(s) have no earlier recorded acquisition cost, so those units are excluded from realized profit.`:'All sold units in this period have recorded cost basis.'}${freeQty?` · ${qty(freeQty)} free-acquired item(s) use a $0 cost basis.`:''}</div></div></div>`;
   }
 
 
@@ -349,7 +394,7 @@
     const masked=state.apiKey?'••••••••••••••••':'';
     return `${header('Settings','Storage, API access & reset',true)}<div class="tta-content tta-settings">
       <div class="tta-keycard"><div class="tta-keyhead"><strong>API Key</strong><span class="tta-keystatus">${esc(status)}</span></div><div class="tta-keyinputrow"><input id="tta-api-key" type="password" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your Torn API key" value="${esc(masked)}" data-placeholder-key="${state.apiKey?'1':'0'}"><button class="tta-btn" data-act="saveApiKey">Save & test</button></div><div class="tta-keynote">Stored only in this device's local storage and sent only to Torn's official API. It is never uploaded to GitHub or sent to us. Use a custom key with <strong>User → Log</strong>; for free-item history, do not restrict away categories such as Crime success, City finds, Mission rewards, Seasonal gift, and similar reward logs.</div>${state.apiKey?'<div class="tta-settings-actions"><button class="tta-btn danger" data-act="clearApiKey">Clear saved API key</button></div>':''}</div>
-      <div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Data storage: only locally on this device.<br>Data sharing: nobody.<br>Purpose: personal statistical analysis of selected item acquisitions and sales.<br>Key storage: locally only / not shared.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong>. Torn PDA's injected key remains supported as a fallback.</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.`:''}</div><div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
+      <div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Data storage: only locally on this device.<br>Data sharing: nobody.<br>Purpose: personal statistical analysis of automatically discovered item acquisitions and sales.<br>Key storage: locally only / not shared.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong>. Torn PDA's injected key remains supported as a fallback.</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.`:''}</div><div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
   }
 
 
@@ -360,7 +405,7 @@
   const preserveScroll=options.preserveScroll ?? (previousView===state.view);
   const previousScroll=preserveScroll && previousShell ? previousShell.scrollTop : 0;
   if(!state.open){root.classList.remove('show');return;} root.classList.add('show');
-  if (!hasApiKey() && !state.tracked.length && !state.transactions.length) state.demo=true; else state.demo=false;
+  if (!hasApiKey() && !state.transactions.length) state.demo=true; else state.demo=false;
   if (state.demo && !state.catalog.length) state.catalog=demoCatalog();
   root.innerHTML=`<div class="tta-shell">${state.view==='add'?addItemHtml():state.view==='settings'?settingsHtml():dashboardHtml()}</div>${state.toast?`<div class="tta-toast">${esc(state.toast)}</div>`:''}`;
   root.dataset.view=state.view;
@@ -378,6 +423,15 @@
       else if(act==='settings'){state.view='settings';render();}
       else if(act==='addItem'){state.view='add';await ensureCatalog();render();setTimeout(()=>document.getElementById('tta-search')?.focus(),30);}
       else if(act==='toggleItem'){state.expanded=Number(state.expanded)===Number(el.dataset.id)?null:Number(el.dataset.id);render();}
+      else if(act==='togglePin'){
+        const id=Number(el.dataset.id),pins=new Set((state.pinnedIds||[]).map(Number));
+        if(pins.has(id))pins.delete(id);else pins.add(id);
+        state.pinnedIds=[...pins];save('pinnedIds',state.pinnedIds);render();
+      }
+      else if(act==='cycleSort'){
+        const i=Math.max(0,SORT_OPTIONS.findIndex(x=>x.id===state.sortMode));
+        state.sortMode=SORT_OPTIONS[(i+1)%SORT_OPTIONS.length].id;save('sortMode',state.sortMode);render();
+      }
       else if(act==='confirmAdd'){addTracked(Number(el.dataset.id));}
       else if(act==='removeItem'){removeTracked(Number(el.dataset.id));}
       else if(act==='sync'){syncAll();}
@@ -387,17 +441,18 @@
         if(input?.dataset.placeholderKey==='1' && /^•+$/.test(key)) key=String(state.apiKey||'').trim();
         if(key.length<16){toast('Enter a valid Torn API key first.');return;}
         state.apiKey=key;save('apiKey',key);state.demo=false;render();
-        try{const info=await inspectActiveKey();await apiGet('/user/log',{limit:1});state.catalog=[];state.catalogVersion=0;save('catalog',[]);save('catalogVersion',0);await ensureCatalog(true);if(state.tracked.length){toast(`API key confirmed (${info.type||'access level '+info.level}). Starting historical sync…`);await syncAll();}else toast(`API key saved · ${info.type||'access level '+info.level}.`);}
+        try{const info=await inspectActiveKey();await apiGet('/user/log',{limit:1});state.catalog=[];state.catalogVersion=0;save('catalog',[]);save('catalogVersion',0);await ensureCatalog(true);toast(`API key confirmed (${info.type||'access level '+info.level}). Starting history discovery…`);await syncAll();}
         catch(err){if(/Incorrect Key|incorrect format/i.test(String(err.message||err))){state.apiKey='';save('apiKey','');}toast(`API key test failed: ${err.message}`);}
       }
       else if(act==='clearApiKey'){state.apiKey='';save('apiKey','');state.demo=!hasApiKey();render();toast(injectedApiKey()?'Saved key cleared. Torn PDA key will be used.':'Saved API key cleared.');}
       else if(act==='refreshCatalog'){state.catalog=[];state.catalogVersion=0;save('catalog',[]);save('catalogVersion',0);await ensureCatalog(true);toast(`Complete item catalog refreshed · ${qty(state.catalog.length)} items.`);}
-      else if(act==='resetData'){if(confirm('Reset all Torn Trade Analyzer tracked items and local transaction data?')){['tracked','transactions','sync'].forEach(k=>localStorage.removeItem(NS+k));state.tracked=[];state.transactions=[];state.sync={lastSync:0,firstSyncComplete:false};state.expanded=null;toast('Analyzer data reset.');}}
+      else if(act==='resetData'){if(confirm('Reset all Torn Trade Analyzer discovered item history and local transaction data?')){['tracked','transactions','sync','pinnedIds','itemSearch','sortMode'].forEach(k=>localStorage.removeItem(NS+k));state.tracked=[];state.transactions=[];state.pinnedIds=[];state.itemSearch='';state.sortMode='recent';state.sync={lastSync:0,firstSyncComplete:false};state.expanded=null;toast('Analyzer data reset.');}}
     }));
     root.querySelectorAll('[data-date]').forEach(el=>el.addEventListener('click',()=>{state.dateMode=el.dataset.date;save('dateMode',state.dateMode);render();}));
     root.querySelectorAll('[data-gran]').forEach(el=>el.addEventListener('click',()=>{state.granularity=el.dataset.gran;save('granularity',state.granularity);render();}));
     root.querySelectorAll('[data-custom]').forEach(el=>el.addEventListener('change',()=>{if(el.dataset.custom==='from')state.customFrom=el.value;else state.customTo=el.value;save('customFrom',state.customFrom);save('customTo',state.customTo);render();}));
     const si=document.getElementById('tta-search'); if(si) si.addEventListener('input',()=>{state.search=si.value; render(); const n=document.getElementById('tta-search');if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length);}});
+    const hi=document.getElementById('tta-history-search');if(hi)hi.addEventListener('input',()=>{state.itemSearch=hi.value;save('itemSearch',state.itemSearch);render();const n=document.getElementById('tta-history-search');if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length);}});
     const ki=document.getElementById('tta-api-key');if(ki){ki.addEventListener('focus',()=>{if(ki.dataset.placeholderKey==='1'){ki.value='';ki.dataset.placeholderKey='0';}});}
   }
 
@@ -519,7 +574,7 @@
     const items=normalizeItems(payload); if(!items.length)return[];
     const totalAll=free?0:cashTotal(payload,items.reduce((s,x)=>s+x.qty,0)); const fee=side==='sell'?fees(payload):0;
     const totalQty=items.reduce((s,x)=>s+x.qty,0)||1;
-    return items.filter(it=>state.tracked.some(t=>Number(t.id)===Number(it.id))).map(it=>{
+    return items.map(it=>{
       const ratio=it.qty/totalQty; const total=totalAll*ratio; const feeShare=fee*ratio;
       return {id:`${entry.id}:${it.id}`,logId:logTypeId,timestamp:entry.timestamp,itemId:it.id,side,qty:it.qty,total,fee:feeShare,netTotal:side==='sell'?Math.max(0,total-feeShare):total,source:known?.source||sourceFrom(title),title,free};
     });
@@ -620,7 +675,6 @@
 
   async function syncAll() {
     if(state.syncing)return;
-    if(!state.tracked.length){toast('Add at least one item first.');return;}
     if(!hasApiKey()){state.demo=true;toast('Add a Torn API key in Settings → API Key to sync real history.');render();return;}
     state.syncing=true;state.syncCancel=false;state.syncProgress='Verifying active API key and probing Torn logs…';render();
     try {
@@ -647,12 +701,12 @@
       scan.diagnostics.probeRows=probe.rows.length;
       const fresh=scan.transactions;
       const merged=new Map(state.transactions.map(x=>[x.id,x])); fresh.forEach(x=>merged.set(x.id,x));
-      state.transactions=[...merged.values()].filter(t=>state.tracked.some(i=>Number(i.id)===Number(t.itemId))).sort((a,b)=>a.timestamp-b.timestamp);
-      save('transactions',state.transactions);state.sync.lastSync=nowSec();state.sync.firstSyncComplete=!state.syncCancel;state.sync.diagnostics=scan.diagnostics;save('sync',state.sync);
+      state.transactions=[...merged.values()].sort((a,b)=>a.timestamp-b.timestamp);
+      save('transactions',state.transactions);state.sync.lastSync=nowSec();state.sync.firstSyncComplete=!state.syncCancel;state.sync.autoDiscoveryComplete=!state.syncCancel;state.sync.diagnostics=scan.diagnostics;save('sync',state.sync);
       const mode=scan.diagnostics.mode==='unfiltered-fallback'?'compatibility fallback':'filtered scan';
       if(state.syncCancel) state.syncProgress=`Sync stopped · ${qty(scan.diagnostics.rawRows)} raw logs scanned · ${qty(fresh.length)} matching rows collected.`;
-      else if(!fresh.length) state.syncProgress=`${mode} completed · ${qty(scan.diagnostics.rawRows)} raw logs scanned but no tracked-item rows parsed. Key: ${keyInfo.type||'unknown'} level ${keyInfo.level||'?'}.`;
-      else state.syncProgress=`Historical sync complete via ${mode} · ${qty(state.transactions.length)} tracked rows stored · ${qty(scan.diagnostics.rawRows)} raw logs scanned.`;
+      else if(!fresh.length) state.syncProgress=`${mode} completed · ${qty(scan.diagnostics.rawRows)} raw logs scanned but no recognizable item rows were parsed. Key: ${keyInfo.type||'unknown'} level ${keyInfo.level||'?'}.`;
+      else state.syncProgress=`Historical sync complete via ${mode} · ${qty(state.transactions.length)} item history rows stored · ${qty(scan.diagnostics.rawRows)} raw logs scanned.`;
     } catch(e) {
       state.syncProgress=`Sync error: ${e.message}`;
     } finally {state.syncing=false;render();}

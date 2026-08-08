@@ -1,0 +1,1 @@
+PASS: v0.1.6 syntax + auto-discovery + search + sorting + pin tests
