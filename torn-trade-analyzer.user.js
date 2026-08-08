@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn Trade Analyzer
 // @namespace    chadgian.torn.trade.analyzer
-// @version      0.1.6
-// @description  Automatically discover items from Torn history, calculate FIFO realized profit, and chart profit by day/week/month. Data stays on-device.
+// @version      0.1.7
+// @description  Automatically discover item history for the selected period, calculate FIFO realized profit, and chart profit by day/week/month. Data stays on-device.
 // @author       chadgian + ChatGPT
 // @match        https://www.torn.com/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.1.6';
+  const VERSION = '0.1.7';
   const API_KEY = '_###PDA-APIKEY###_';
   const NS = 'tta:v1:';
   const API = 'https://api.torn.com/v2';
@@ -252,7 +252,8 @@
     effectiveTransactions().forEach(t=>{const id=Number(t.itemId),ts=Number(t.timestamp)||0;if(id>0&&ts>(lastById.get(id)||0))lastById.set(id,ts);});
     const rows=effectiveTracked()
       .filter(item=>!q || item.name.toLowerCase().includes(q) || String(item.id).includes(q))
-      .map(item=>({item,summary:summaryFor(item.id),lastActivity:lastById.get(Number(item.id))||0,pinned:pinned.has(Number(item.id))}));
+      .map(item=>({item,summary:summaryFor(item.id),lastActivity:lastById.get(Number(item.id))||0,pinned:pinned.has(Number(item.id))}))
+      .filter(row=>row.summary.events.length>0);
     rows.sort((a,b)=>{
       if(a.pinned!==b.pinned)return a.pinned?-1:1;
       let d=0;
@@ -266,16 +267,37 @@
     return rows;
   }
 
+  function subtractCalendarMonth(date) {
+    const d=new Date(date);
+    const day=d.getDate();
+    d.setDate(1);
+    d.setMonth(d.getMonth()-1);
+    const maxDay=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+    d.setDate(Math.min(day,maxDay));
+    return d;
+  }
+
+  function selectedPeriodBounds(nowDate=new Date()) {
+    const nowMs=nowDate.getTime();
+    let from=0,to=Math.floor(nowMs/1000)+60;
+    if(state.dateMode==='7d') from=Math.floor((nowMs-7*86400*1000)/1000);
+    else if(state.dateMode==='30d') from=Math.floor((nowMs-30*86400*1000)/1000);
+    else if(state.dateMode==='month') from=Math.floor(subtractCalendarMonth(nowDate).getTime()/1000);
+    else if(state.dateMode==='custom') {
+      if(state.customFrom) from=Math.floor(new Date(state.customFrom+'T00:00:00').getTime()/1000);
+      if(state.customTo) to=Math.min(to,Math.floor(new Date(state.customTo+'T23:59:59').getTime()/1000));
+    }
+    if(!Number.isFinite(from)||from<0)from=0;
+    if(!Number.isFinite(to))to=Math.floor(nowMs/1000)+60;
+    return {from:Math.floor(from),to:Math.floor(to)};
+  }
+
   function dateRange() {
-    const allTx = effectiveTransactions(); const now = new Date(); let from = 0, to = Math.floor(Date.now()/1000) + 86400;
-    if (state.dateMode === '7d') from = nowSec() - 7*86400;
-    else if (state.dateMode === '30d') from = nowSec() - 30*86400;
-    else if (state.dateMode === 'month') from = Math.floor(new Date(now.getFullYear(), now.getMonth(), 1).getTime()/1000);
-    else if (state.dateMode === 'custom') {
-      if (state.customFrom) from = Math.floor(new Date(state.customFrom + 'T00:00:00').getTime()/1000);
-      if (state.customTo) to = Math.floor(new Date(state.customTo + 'T23:59:59').getTime()/1000);
-    } else if (state.dateMode === 'all' && allTx.length) from = Math.min(...allTx.map(x => x.timestamp));
-    return {from, to};
+    const allTx=effectiveTransactions();
+    const bounds=selectedPeriodBounds();
+    let from=bounds.from,to=bounds.to;
+    if(state.dateMode==='all'&&allTx.length)from=Math.min(...allTx.map(x=>x.timestamp));
+    return {from,to};
   }
 
   function fifoAnalytics(itemId) {
@@ -352,14 +374,18 @@
 
   function dashboardHtml() {
     const s=overall(), rows=historyItemRows(), allItems=effectiveTracked(), range=dateRange();
+    const requested=selectedPeriodBounds();
+    const coverageFrom=Number(state.sync?.coverageFrom);
+    const needsBackfill=hasApiKey()&&state.sync?.firstSyncComplete&&requested.from>0&&(!Number.isFinite(coverageFrom)||coverageFrom>requested.from);
     const pinnedCount=(state.pinnedIds||[]).filter(id=>allItems.some(x=>Number(x.id)===Number(id))).length;
     const periodLabel = state.dateMode==='all'?'All available history':`${dateStr(range.from)} – ${dateStr(Math.min(range.to,nowSec()))}`;
     return `${header('Trade Analyzer', `v${VERSION} · FIFO realized profit`)}<div class="tta-content">
       ${!hasApiKey()?`<div class="tta-banner"><strong>Preview mode.</strong> Add your Torn API key in <strong>Settings → API Key</strong> (or use Torn PDA's injected key) to load your real history. The key and analyzed data stay on this device.</div>`:''}
       ${hasApiKey()&&!state.sync?.autoDiscoveryComplete?`<div class="tta-banner"><strong>v${VERSION} auto-discovery:</strong> Run Sync once to discover every recognizable item in your Torn acquisition and sale history. Manual item tracking is no longer required.</div>`:''}
+      ${needsBackfill?`<div class="tta-banner"><strong>More history needed:</strong> This period starts ${esc(dateStr(requested.from))}, earlier than the local cache. Press <strong>Sync</strong> to backfill the full selected period.</div>`:''}
       <div class="tta-period"><div><small>Date period</small><br><strong>${esc(periodLabel)}</strong></div><button class="tta-btn secondary" data-act="sync" ${state.syncing?'disabled':''}>${state.syncing?'<span class="tta-sync"><span class="tta-spinner"></span>Syncing</span>':'↻ Sync'}</button></div>
       ${state.syncProgress?`<div class="tta-banner">${esc(state.syncProgress)} ${state.syncing?'<button class="tta-btn danger" data-act="cancelSync" style="min-height:30px;padding:5px 9px;margin-left:8px;vertical-align:middle">Stop</button>':''}</div>`:''}
-      <div class="tta-chips">${[['7d','7 days'],['30d','30 days'],['month','This month'],['all','All'],['custom','Custom']].map(([k,l])=>`<button class="tta-chip ${state.dateMode===k?'active':''}" data-date="${k}">${l}</button>`).join('')}</div>
+      <div class="tta-chips">${[['7d','7 days'],['30d','30 days'],['month','1 month'],['all','All'],['custom','Custom']].map(([k,l])=>`<button class="tta-chip ${state.dateMode===k?'active':''}" data-date="${k}">${l}</button>`).join('')}</div>
       ${state.dateMode==='custom'?`<div class="tta-customdates"><input type="date" data-custom="from" value="${esc(state.customFrom)}"><input type="date" data-custom="to" value="${esc(state.customTo)}"></div>`:''}
       <div class="tta-summary"><div class="tta-stat main"><label>Realized profit</label><b class="${s.profit>=0?'pos':'neg'}">${money(s.profit)}</b></div><div class="tta-stat"><label>Acquired</label><b>${qty(s.bought)}</b></div><div class="tta-stat"><label>Sold</label><b>${qty(s.sold)}</b></div></div>
       <div class="tta-chartcard"><div class="tta-charthead"><h3>Profit earned</h3><div class="tta-seg">${['day','week','month'].map(g=>`<button class="${state.granularity===g?'active':''}" data-gran="${g}">${g[0].toUpperCase()+g.slice(1)}</button>`).join('')}</div></div>${chartSvg(profitSeries())}</div>
@@ -394,7 +420,7 @@
     const masked=state.apiKey?'••••••••••••••••':'';
     return `${header('Settings','Storage, API access & reset',true)}<div class="tta-content tta-settings">
       <div class="tta-keycard"><div class="tta-keyhead"><strong>API Key</strong><span class="tta-keystatus">${esc(status)}</span></div><div class="tta-keyinputrow"><input id="tta-api-key" type="password" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your Torn API key" value="${esc(masked)}" data-placeholder-key="${state.apiKey?'1':'0'}"><button class="tta-btn" data-act="saveApiKey">Save & test</button></div><div class="tta-keynote">Stored only in this device's local storage and sent only to Torn's official API. It is never uploaded to GitHub or sent to us. Use a custom key with <strong>User → Log</strong>; for free-item history, do not restrict away categories such as Crime success, City finds, Mission rewards, Seasonal gift, and similar reward logs.</div>${state.apiKey?'<div class="tta-settings-actions"><button class="tta-btn danger" data-act="clearApiKey">Clear saved API key</button></div>':''}</div>
-      <div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Data storage: only locally on this device.<br>Data sharing: nobody.<br>Purpose: personal statistical analysis of automatically discovered item acquisitions and sales.<br>Key storage: locally only / not shared.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong>. Torn PDA's injected key remains supported as a fallback.</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.`:''}</div><div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
+      <div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Data storage: only locally on this device.<br>Data sharing: nobody.<br>Purpose: personal statistical analysis of automatically discovered item acquisitions and sales.<br>Key storage: locally only / not shared.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong>. Torn PDA's injected key remains supported as a fallback.</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.pages||0)} pages · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.${state.sync.diagnostics.periodFrom?`<br>Period scanned: ${esc(dateStr(state.sync.diagnostics.periodFrom))} – ${esc(dateStr(Math.min(state.sync.diagnostics.periodTo||nowSec(),nowSec())))}`:'<br>Period scanned: all available history.'}`:''}</div><div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
   }
 
 
@@ -404,6 +430,8 @@
   const previousShell=root.querySelector('.tta-shell');
   const preserveScroll=options.preserveScroll ?? (previousView===state.view);
   const previousScroll=preserveScroll && previousShell ? previousShell.scrollTop : 0;
+  const fab=document.getElementById('tta-fab');
+  if(fab)fab.style.display=state.open?'none':'inline-flex';
   if(!state.open){root.classList.remove('show');return;} root.classList.add('show');
   if (!hasApiKey() && !state.transactions.length) state.demo=true; else state.demo=false;
   if (state.demo && !state.catalog.length) state.catalog=demoCatalog();
@@ -615,84 +643,84 @@
     return {data,rows:Array.isArray(data?.log)?data.log:[]};
   }
 
-  async function fetchFilteredHistory(logIds) {
-  const found=new Map();
-  const diagnostics={rawRows:0,parsedRows:0,matchedRows:0,batches:Math.ceil(logIds.length/MAX_LOG_IDS_PER_REQUEST),logTypes:logIds.length};
-  for(let b=0;b<logIds.length;b+=MAX_LOG_IDS_PER_REQUEST){
-    if(state.syncCancel)break;
-    const ids=logIds.slice(b,b+MAX_LOG_IDS_PER_REQUEST);
-    let params={log:ids.join(','),limit:100,to:nowSec()+60};
-    let page=0,previousSignature='';
-    while(!state.syncCancel){
-      page++; state.syncProgress=`Historical scan ${Math.floor(b/MAX_LOG_IDS_PER_REQUEST)+1}/${diagnostics.batches} · page ${page} · ${qty(found.size)} matching rows found`;render();
-      const data=await apiGet('/user/log',params);
-      const rows=Array.isArray(data.log)?data.log:[];
-      diagnostics.rawRows+=rows.length;
-      if(!rows.length)break;
-      rows.forEach(r=>{
-        const parsed=parseLogEntry(r);
-        if(parsed.length)diagnostics.parsedRows+=parsed.length;
-        parsed.forEach(t=>{found.set(t.id,t);diagnostics.matchedRows++;});
-      });
-      const nextParams=nextLogPageParams(data,params);
-      if(!nextParams)break;
-      const signature=JSON.stringify(nextParams);
-      if(signature===previousSignature)break;
-      previousSignature=signature;params=nextParams;
-      await sleep(REQUEST_GAP_MS);
-    }
-    await sleep(REQUEST_GAP_MS);
+  function rawLogKey(r) {
+    return String(r?.id??`${r?.timestamp||0}:${r?.details?.id||0}:${JSON.stringify(r?.data||r?.params||{})}`);
   }
-  return {transactions:[...found.values()],diagnostics};
-}
 
-  async function fetchUnfilteredHistory(firstPage=null) {
-    const found=new Map();
-    const diagnostics={rawRows:0,parsedRows:0,matchedRows:0,batches:1,logTypes:0,mode:'unfiltered-fallback'};
-    let params={limit:100};
-    let page=0,previousSignature='',data=firstPage;
+  async function scanLogWindow(baseParams,period,label,found,diagnostics) {
+    let cursorTo=period.to;
+    let page=0;
+    let previousSignature='';
+    const seenRaw=new Set();
     while(!state.syncCancel){
-      page++;
-      if(!data)data=await apiGet('/user/log',params);
+      const params={...baseParams,limit:100,to:cursorTo};
+      if(period.from>0)params.from=period.from;
+      page++;diagnostics.pages++;
+      state.syncProgress=`${label} · page ${page} · back to ${dateStr(Math.max(period.from,Math.min(cursorTo,nowSec())))} · ${qty(found.size)} item rows`;render();
+      const data=await apiGet('/user/log',params);
       const rows=Array.isArray(data?.log)?data.log:[];
-      diagnostics.rawRows+=rows.length;
-      state.syncProgress=`Fallback history scan · page ${page} · ${qty(diagnostics.rawRows)} raw logs · ${qty(found.size)} matching rows`;render();
       if(!rows.length)break;
-      rows.forEach(r=>{
+      const signature=rows.map(rawLogKey).join('|');
+      const unseen=rows.filter(r=>{const k=rawLogKey(r);if(seenRaw.has(k))return false;seenRaw.add(k);return true;});
+      diagnostics.rawRows+=unseen.length;
+      unseen.forEach(r=>{
+        const ts=Number(r?.timestamp)||0;
+        if(ts<period.from||ts>period.to)return;
         const parsed=parseLogEntry(r);
         diagnostics.parsedRows+=parsed.length;
         parsed.forEach(t=>{found.set(t.id,t);diagnostics.matchedRows++;});
       });
-      const nextParams=nextLogPageParams(data,params);
-      if(!nextParams)break;
-      const signature=JSON.stringify(nextParams);
-      if(signature===previousSignature)break;
-      previousSignature=signature;params=nextParams;data=null;
+      const timestamps=rows.map(r=>Number(r?.timestamp)).filter(Number.isFinite);
+      if(!timestamps.length)break;
+      const oldest=Math.min(...timestamps);
+      diagnostics.oldestTimestamp=diagnostics.oldestTimestamp?Math.min(diagnostics.oldestTimestamp,oldest):oldest;
+      if(period.from>0&&oldest<=period.from)break;
+      let nextTo=oldest;
+      if(signature===previousSignature)nextTo=oldest-1;
+      if(!Number.isFinite(nextTo)||(nextTo>=cursorTo&&signature===previousSignature))break;
+      if(period.from>0&&nextTo<period.from)break;
+      previousSignature=signature;
+      cursorTo=nextTo;
       await sleep(REQUEST_GAP_MS);
     }
+  }
+
+  async function fetchFilteredHistory(logIds,period) {
+    const found=new Map();
+    const diagnostics={rawRows:0,parsedRows:0,matchedRows:0,batches:Math.ceil(logIds.length/MAX_LOG_IDS_PER_REQUEST),logTypes:logIds.length,pages:0,oldestTimestamp:0,mode:'filtered',periodFrom:period.from,periodTo:period.to};
+    for(let b=0;b<logIds.length;b+=MAX_LOG_IDS_PER_REQUEST){
+      if(state.syncCancel)break;
+      const ids=logIds.slice(b,b+MAX_LOG_IDS_PER_REQUEST);
+      await scanLogWindow({log:ids.join(',')},period,`Historical scan ${Math.floor(b/MAX_LOG_IDS_PER_REQUEST)+1}/${diagnostics.batches}`,found,diagnostics);
+      if(!state.syncCancel)await sleep(REQUEST_GAP_MS);
+    }
+    return {transactions:[...found.values()],diagnostics};
+  }
+
+  async function fetchUnfilteredHistory(period) {
+    const found=new Map();
+    const diagnostics={rawRows:0,parsedRows:0,matchedRows:0,batches:1,logTypes:0,pages:0,oldestTimestamp:0,mode:'unfiltered-fallback',periodFrom:period.from,periodTo:period.to};
+    await scanLogWindow({},period,'Compatibility history scan',found,diagnostics);
     return {transactions:[...found.values()],diagnostics};
   }
 
   async function syncAll() {
     if(state.syncing)return;
     if(!hasApiKey()){state.demo=true;toast('Add a Torn API key in Settings → API Key to sync real history.');render();return;}
-    state.syncing=true;state.syncCancel=false;state.syncProgress='Verifying active API key and probing Torn logs…';render();
+    const period=selectedPeriodBounds();
+    const periodText=period.from>0?`${dateStr(period.from)} – ${dateStr(Math.min(period.to,nowSec()))}`:'all available history';
+    state.syncing=true;state.syncCancel=false;state.syncProgress=`Preparing historical scan for ${periodText}…`;render();
     try {
       await ensureCatalog();
       const keyInfo=await inspectActiveKey();
       const probe=await probeUserLogs();
-      if(!probe.rows.length){
-        throw new Error(`Torn returned 0 user logs even without any log filter. Active key reports ${keyInfo.type||'unknown'} access (level ${keyInfo.level||'?'}), source: ${keySource()}. This is not an item-parser failure.`);
-      }
       const types=relevantLogTypes(await ensureLogTypes(true));
       if(!types.length) throw new Error('No relevant Torn transaction or free-acquisition log types were detected.');
-      state.syncProgress=`Unfiltered probe succeeded with ${qty(probe.rows.length)} recent logs. Testing ${qty(types.length)} transaction-related log types…`;render();
-      let scan=await fetchFilteredHistory(types.map(x=>x.id));
-      if(scan.diagnostics.rawRows===0 && probe.rows.length){
-        state.syncProgress='Torn returned logs generally but zero for filtered batches. Switching to compatibility fallback…';render();
-        scan=await fetchUnfilteredHistory(probe.data);
-      } else {
-        scan.diagnostics.mode='filtered';
+      state.syncProgress=`Scanning the complete selected period: ${periodText}…`;render();
+      let scan=await fetchFilteredHistory(types.map(x=>x.id),period);
+      if(scan.diagnostics.rawRows===0){
+        state.syncProgress='Filtered period scan returned no raw rows. Trying unfiltered compatibility scan for the same dates…';render();
+        scan=await fetchUnfilteredHistory(period);
       }
       scan.diagnostics.keyType=keyInfo.type;
       scan.diagnostics.keyLevel=keyInfo.level;
@@ -700,13 +728,24 @@
       scan.diagnostics.customLogPermissions=keyInfo.customLogPermissions;
       scan.diagnostics.probeRows=probe.rows.length;
       const fresh=scan.transactions;
-      const merged=new Map(state.transactions.map(x=>[x.id,x])); fresh.forEach(x=>merged.set(x.id,x));
+      const outside=state.transactions.filter(t=>Number(t.timestamp)<period.from||Number(t.timestamp)>period.to);
+      const merged=new Map(outside.map(x=>[x.id,x]));
+      fresh.forEach(x=>merged.set(x.id,x));
       state.transactions=[...merged.values()].sort((a,b)=>a.timestamp-b.timestamp);
-      save('transactions',state.transactions);state.sync.lastSync=nowSec();state.sync.firstSyncComplete=!state.syncCancel;state.sync.autoDiscoveryComplete=!state.syncCancel;state.sync.diagnostics=scan.diagnostics;save('sync',state.sync);
-      const mode=scan.diagnostics.mode==='unfiltered-fallback'?'compatibility fallback':'filtered scan';
-      if(state.syncCancel) state.syncProgress=`Sync stopped · ${qty(scan.diagnostics.rawRows)} raw logs scanned · ${qty(fresh.length)} matching rows collected.`;
-      else if(!fresh.length) state.syncProgress=`${mode} completed · ${qty(scan.diagnostics.rawRows)} raw logs scanned but no recognizable item rows were parsed. Key: ${keyInfo.type||'unknown'} level ${keyInfo.level||'?'}.`;
-      else state.syncProgress=`Historical sync complete via ${mode} · ${qty(state.transactions.length)} item history rows stored · ${qty(scan.diagnostics.rawRows)} raw logs scanned.`;
+      save('transactions',state.transactions);
+      state.sync.lastSync=nowSec();
+      state.sync.firstSyncComplete=!state.syncCancel;
+      state.sync.autoDiscoveryComplete=!state.syncCancel;
+      if(!state.syncCancel){
+        const oldCoverage=Number(state.sync.coverageFrom);
+        state.sync.coverageFrom=Number.isFinite(oldCoverage)?Math.min(oldCoverage,period.from):period.from;
+        state.sync.coverageTo=Math.max(Number(state.sync.coverageTo)||0,Math.min(period.to,nowSec()));
+      }
+      state.sync.diagnostics=scan.diagnostics;save('sync',state.sync);
+      const mode=scan.diagnostics.mode==='unfiltered-fallback'?'compatibility scan':'filtered scan';
+      if(state.syncCancel) state.syncProgress=`Sync stopped · ${qty(scan.diagnostics.rawRows)} raw logs scanned · ${qty(fresh.length)} item rows collected.`;
+      else if(!fresh.length) state.syncProgress=`${mode} completed for ${periodText} · ${qty(scan.diagnostics.rawRows)} raw logs scanned · no recognizable item acquisitions or sales found.`;
+      else state.syncProgress=`Historical sync complete for ${periodText} · ${qty(fresh.length)} item rows in this period · ${qty(scan.diagnostics.rawRows)} raw logs scanned across ${qty(scan.diagnostics.pages)} pages.`;
     } catch(e) {
       state.syncProgress=`Sync error: ${e.message}`;
     } finally {state.syncing=false;render();}
