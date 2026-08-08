@@ -5,12 +5,15 @@ on:
     branches: [main]
     paths:
       - '.tta-v017-trigger'
+  pull_request:
+    types: [opened, synchronize]
 
 permissions:
   contents: write
 
 jobs:
   verify-publish:
+    if: github.event_name == 'push' || github.event.pull_request.title == 'publish-tta-v017-period-history'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +34,6 @@ jobs:
           s=s.replace("const VERSION = '0.1.6';","const VERSION = '0.1.7';",1)
           s=s.replace('Automatically discover items from Torn history, calculate FIFO realized profit, and chart profit by day/week/month. Data stays on-device.','Automatically discover item history for the selected period, calculate FIFO realized profit, and chart profit by day/week/month. Data stays on-device.',1)
 
-          # Period functions: rolling 1-month means Aug 8 -> Jul 8, not current calendar month.
           a=s.index('  function dateRange() {')
           b=s.index('\n\n  function fifoAnalytics',a)
           period_block=r'''  function subtractCalendarMonth(date) {
@@ -68,23 +70,19 @@ jobs:
   }'''
           s=s[:a]+period_block+s[b:]
 
-          # Only show item cards that actually have activity inside the selected display period.
           old="""    const rows=effectiveTracked()\n      .filter(item=>!q || item.name.toLowerCase().includes(q) || String(item.id).includes(q))\n      .map(item=>({item,summary:summaryFor(item.id),lastActivity:lastById.get(Number(item.id))||0,pinned:pinned.has(Number(item.id))}));"""
           new="""    const rows=effectiveTracked()\n      .filter(item=>!q || item.name.toLowerCase().includes(q) || String(item.id).includes(q))\n      .map(item=>({item,summary:summaryFor(item.id),lastActivity:lastById.get(Number(item.id))||0,pinned:pinned.has(Number(item.id))}))\n      .filter(row=>row.summary.events.length>0);"""
           assert old in s
           s=s.replace(old,new,1)
 
-          # Rolling month UI label.
           assert "['month','This month']" in s
           s=s.replace("['month','This month']","['month','1 month']",1)
 
-          # Hide the floating launcher while the analyzer is open and restore it on close.
           old="""  const previousScroll=preserveScroll && previousShell ? previousShell.scrollTop : 0;\n  if(!state.open){root.classList.remove('show');return;} root.classList.add('show');"""
           new="""  const previousScroll=preserveScroll && previousShell ? previousShell.scrollTop : 0;\n  const fab=document.getElementById('tta-fab');\n  if(fab)fab.style.display=state.open?'none':'inline-flex';\n  if(!state.open){root.classList.remove('show');return;} root.classList.add('show');"""
           assert old in s
           s=s.replace(old,new,1)
 
-          # Add period-coverage warning to dashboard.
           old="""    const s=overall(), rows=historyItemRows(), allItems=effectiveTracked(), range=dateRange();\n    const pinnedCount=(state.pinnedIds||[]).filter(id=>allItems.some(x=>Number(x.id)===Number(id))).length;"""
           new="""    const s=overall(), rows=historyItemRows(), allItems=effectiveTracked(), range=dateRange();\n    const requested=selectedPeriodBounds();\n    const coverageFrom=Number(state.sync?.coverageFrom);\n    const needsBackfill=hasApiKey()&&state.sync?.firstSyncComplete&&requested.from>0&&(!Number.isFinite(coverageFrom)||coverageFrom>requested.from);\n    const pinnedCount=(state.pinnedIds||[]).filter(id=>allItems.some(x=>Number(x.id)===Number(id))).length;"""
           assert old in s
@@ -93,7 +91,6 @@ jobs:
           assert banner in s
           s=s.replace(banner,banner+"\n      ${needsBackfill?`<div class=\"tta-banner\"><strong>More history needed:</strong> This period starts ${esc(dateStr(requested.from))}, earlier than the local cache. Press <strong>Sync</strong> to backfill the full selected period.</div>`:''}",1)
 
-          # Replace pagination with explicit from/to period crawling and timestamp cursor.
           a=s.index('  async function fetchFilteredHistory(logIds) {')
           b=s.index('\n\n  function demoCatalog',a)
           scan_block=r'''  function rawLogKey(r) {
@@ -130,7 +127,7 @@ jobs:
       if(period.from>0&&oldest<=period.from)break;
       let nextTo=oldest;
       if(signature===previousSignature)nextTo=oldest-1;
-      if(!Number.isFinite(nextTo)||nextTo>=cursorTo&&signature===previousSignature)break;
+      if(!Number.isFinite(nextTo)||(nextTo>=cursorTo&&signature===previousSignature))break;
       if(period.from>0&&nextTo<period.from)break;
       previousSignature=signature;
       cursorTo=nextTo;
@@ -205,7 +202,6 @@ jobs:
   }'''
           s=s[:a]+scan_block+s[b:]
 
-          # Settings diagnostics now expose actual coverage.
           old="${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.`:''}"
           new="${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.pages||0)} pages · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.${state.sync.diagnostics.periodFrom?`<br>Period scanned: ${esc(dateStr(state.sync.diagnostics.periodFrom))} – ${esc(dateStr(Math.min(state.sync.diagnostics.periodTo||nowSec(),nowSec())))}`:'<br>Period scanned: all available history.'}`:''}"
           assert old in s
