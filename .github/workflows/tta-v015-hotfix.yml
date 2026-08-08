@@ -1,17 +1,16 @@
 name: Torn Trade Analyzer v0.1.5 hotfix
 
 on:
-  issues:
-    types: [opened]
-  pull_request:
-    types: [opened, synchronize]
+  push:
+    branches: [main]
+    paths:
+      - '.tta-v015-trigger'
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: (github.event_name == 'issues' && github.event.issue.title == 'publish-tta-v015-hotfix') || (github.event_name == 'pull_request' && github.event.pull_request.title == 'publish-tta-v015-hotfix')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,8 +58,7 @@ jobs:
 '''
           s=s.replace(marker,helper+marker,1)
 
-          sync_marker='  async function syncAll() {'
-          a=s.index(sync_marker)
+          a=s.index('  async function syncAll() {')
           b=s.index('\n\n  function demoCatalog',a)
           new_block=r'''  async function fetchUnfilteredHistory(firstPage=null) {
             const found=new Map();
