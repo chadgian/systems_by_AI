@@ -1,15 +1,15 @@
 name: Publish exact Torn Trade Analyzer v0.1.4
 
 on:
-  push:
-    paths:
-      - '.github/workflows/publish-torn-trade-v014-exact.yml'
+  issues:
+    types: [opened]
 
 permissions:
   contents: write
 
 jobs:
   publish:
+    if: github.event.issue.title == 'publish-torn-trade-v014'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
