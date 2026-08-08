@@ -1,21 +1,22 @@
-name: Publish Torn Trade Analyzer v0.1.4
+name: Verify Torn Trade Analyzer v0.1.4 patch
 
 on:
-  push:
-    paths:
-      - '.github/workflows/patch-torn-trade-v014.yml'
+  pull_request:
+    types: [opened, synchronize]
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.event.pull_request.title == 'Apply Torn Trade Analyzer v0.1.4 patch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - name: Patch userscript
+      - name: Patch and verify userscript
         shell: bash
         run: |
           python - <<'PY'
@@ -49,8 +50,6 @@ jobs:
           assert n == 1
 
           relevant_new = r'''  function relevantLogTypes(all) {
-            // Torn log payloads/titles evolve. Keep this deliberately broad for item movement,
-            // then let parseLogEntry reject rows whose payload contains no item information.
             const paidContext=/(item market|bazaar|abroad|foreign|travel|shop|auction|market)/i;
             const paidAction=/\b(buy|bought|purchase|purchased|sell|sold|sale|listed|listing|win|won)\b/i;
             const itemMovement=/(item|plushie|flower|drug|weapon|armor|armour|temporary).*(buy|bought|purchase|purchased|sell|sold|sale|receive|received|gain|gained|find|found|reward|loot|won|win)|(buy|bought|purchase|purchased|sell|sold|sale|receive|received|gain|gained|find|found|reward|loot|won|win).*(item|plushie|flower|drug|weapon|armor|armour|temporary)/i;
@@ -173,8 +172,10 @@ jobs:
           grep -q '@version      0.1.4' torn-trade-analyzer.user.js
           grep -q 'function nextLogPageParams' torn-trade-analyzer.user.js
           grep -q 'previousScroll' torn-trade-analyzer.user.js
+          grep -q 'visit(data,q,0)' torn-trade-analyzer.user.js
+          grep -q 'Last scan:' torn-trade-analyzer.user.js
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add torn-trade-analyzer.user.js
           git commit -m 'Fix accordion scroll and broaden Torn log parsing'
-          git push
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
