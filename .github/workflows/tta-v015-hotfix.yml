@@ -3,13 +3,15 @@ name: Torn Trade Analyzer v0.1.5 hotfix
 on:
   issues:
     types: [opened]
+  pull_request:
+    types: [opened, synchronize]
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.issue.title == 'publish-tta-v015-hotfix'
+    if: (github.event_name == 'issues' && github.event.issue.title == 'publish-tta-v015-hotfix') || (github.event_name == 'pull_request' && github.event.pull_request.title == 'publish-tta-v015-hotfix')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +31,6 @@ jobs:
           s=s.replace('// @version      0.1.4','// @version      0.1.5',1)
           s=s.replace("const VERSION = '0.1.4';","const VERSION = '0.1.5';",1)
 
-          # Rename the existing filtered scanner.
           assert '  async function fetchHistory(logIds) {' in s
           s=s.replace('  async function fetchHistory(logIds) {','  async function fetchFilteredHistory(logIds) {',1)
 
@@ -129,7 +130,6 @@ jobs:
           }'''
           s=s[:a]+new_block+s[b:]
 
-          # Improve saved-key validation: verify key metadata, not only that /user/log returns HTTP 200.
           old="try{await apiGet('/user/log',{limit:1});state.catalog=[];state.catalogVersion=0;save('catalog',[]);save('catalogVersion',0);await ensureCatalog(true);if(state.tracked.length){toast('API key confirmed. Starting historical sync…');await syncAll();}else toast('API key saved and User → Log access confirmed.');}"
           new="try{const info=await inspectActiveKey();await apiGet('/user/log',{limit:1});state.catalog=[];state.catalogVersion=0;save('catalog',[]);save('catalogVersion',0);await ensureCatalog(true);if(state.tracked.length){toast(`API key confirmed (${info.type||'access level '+info.level}). Starting historical sync…`);await syncAll();}else toast(`API key saved · ${info.type||'access level '+info.level}.`);}"
           assert old in s
