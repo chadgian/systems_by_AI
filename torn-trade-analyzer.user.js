@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn Trade Analyzer
 // @namespace    chadgian.torn.trade.analyzer
-// @version      0.1.11
-// @description  Fast Torn trade analytics with authoritative player trades, market-value cash allocation, cached FIFO calculations, item details, and progressive loading. Data stays on-device.
+// @version      0.1.12
+// @description  Fast Torn trade analytics with minimizable background sync, authoritative player trades, market-value allocation, cached FIFO, item details, and progressive loading. Data stays on-device.
 // @author       chadgian + ChatGPT
 // @match        https://www.torn.com/*
 // @run-at       document-end
@@ -14,14 +14,13 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.1.11';
+  const VERSION = '0.1.12';
   const API_KEY = '_###PDA-APIKEY###_';
   const NS = 'tta:v1:';
   const API = 'https://api.torn.com/v2';
   const REQUEST_GAP_MS = 800; // <=75 requests/minute, leaving headroom under Torn's 100/min user limit.
   const MAX_LOG_IDS_PER_REQUEST = 24;
   const CATALOG_SCHEMA_VERSION = 2;
-  // Known Torn transaction log IDs. Dynamic /torn/logtypes discovery is still used.
   const KNOWN_TRANSACTION_LOGS = new Map([
     [1103, {side:'buy', source:'Item Market'}],
     [1104, {side:'sell', source:'Item Market'}],
@@ -150,6 +149,8 @@
       #tta-fab{position:fixed;right:14px;bottom:86px;z-index:2147483000;min-height:42px;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;border:1px solid #38566a;border-radius:18px;background:linear-gradient(135deg,#1a352f,#183951);color:#fff;box-shadow:0 12px 35px #0009;padding:11px 14px;font:700 12px/1.1 system-ui;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-align:center}
       #tta-fab.dragging{cursor:grabbing;opacity:.92;transform:scale(1.02)}
       #tta-fab .dot{width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:var(--tta-green);box-shadow:0 0 14px var(--tta-green)}
+      #tta-fab.syncing{border-color:#ff9aa8;background:linear-gradient(135deg,#5d2931,#7b333e);color:#ffe9ec;box-shadow:0 12px 35px #0009,0 0 18px #ff859655}
+      #tta-fab .tta-fabspinner{width:14px;height:14px;flex:0 0 14px;border:2px solid #ffccd244;border-top-color:#ffb0ba;border-right-color:#ffb0ba;border-radius:50%;animation:tta-spin .78s linear infinite}
       #tta-root{position:fixed;inset:0;z-index:2147482999;background:#06090dcc;backdrop-filter:blur(5px);display:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--tta-text);font-size:14px;line-height:1.4}
       #tta-root.show{display:block}.tta-shell{position:absolute;inset:0;background:var(--tta-bg);overflow:auto;overscroll-behavior:contain;padding-bottom:max(38px,env(safe-area-inset-bottom))}.tta-header{position:sticky;top:0;z-index:4;display:flex;align-items:center;gap:9px;min-height:62px;padding:10px 12px;background:#0b0f14f2;border-bottom:1px solid var(--tta-line);backdrop-filter:blur(8px)}
       .tta-brand{display:flex;align-items:center;gap:9px;min-width:0;flex:1}.tta-mark{width:38px;height:38px;flex:0 0 38px;border-radius:11px;background:linear-gradient(145deg,#183d32,#17394f);display:grid;place-items:center;font-size:19px;line-height:1}.tta-brandcopy{min-width:0}.tta-title{color:var(--tta-text);font-size:15px;font-weight:850;letter-spacing:.15px;line-height:1.2}.tta-sub{font-size:11px;color:var(--tta-muted);margin-top:2px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -173,11 +174,11 @@
       .tta-periodhint{display:block;margin-top:3px;color:var(--tta-faint);font-size:9px;line-height:1.35}.tta-status-banner{display:flex;align-items:flex-start;gap:8px}.tta-status-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:var(--tta-blue);margin-top:4px;box-shadow:0 0 10px #7fc1ff66}
       .tta-searchwrap{position:relative;min-width:0}.tta-searchglyph{position:absolute;left:11px;top:50%;transform:translateY(-50%);z-index:1;color:var(--tta-faint);font-size:15px;pointer-events:none}.tta-searchwrap .tta-history-search{padding-left:34px;padding-right:39px}.tta-clearsearch{position:absolute;right:5px;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:31px;height:31px;min-width:31px;min-height:31px;border:0;border-radius:8px;background:transparent;color:var(--tta-muted)!important;font-size:18px;padding:0}.tta-clearsearch[hidden]{display:none}.tta-sortbtn{min-width:126px}
       .tta-liststage{min-height:80px}.tta-listmeta strong{color:var(--tta-text)}
-      .tta-loading{position:fixed;inset:0;z-index:2147483001;display:none;place-items:center;background:#05080bd9;padding:20px;pointer-events:auto}.tta-loading.show{display:grid}.tta-loadingcard{width:min(420px,94vw);background:#111a23;border:1px solid #3b5266;border-radius:18px;padding:18px;box-shadow:0 22px 70px #000b;text-align:center}.tta-loadicon{width:52px;height:52px;margin:0 auto 12px;border-radius:16px;background:#172632;border:1px solid #345269;display:grid;place-items:center}.tta-spinner.xl{width:24px;height:24px;border-width:3px}.tta-loadingtitle{font-size:15px;font-weight:900;color:var(--tta-text);line-height:1.3}.tta-loadingdetail{min-height:34px;margin-top:7px;color:var(--tta-muted);font-size:11px;line-height:1.5}.tta-loadingbar{height:4px;margin:13px 0 12px;overflow:hidden;border-radius:999px;background:#091018}.tta-loadingbar span{display:block;width:38%;height:100%;border-radius:inherit;background:var(--tta-green);animation:tta-load-slide 1.25s ease-in-out infinite}@keyframes tta-load-slide{0%{transform:translateX(-120%)}50%{transform:translateX(165%)}100%{transform:translateX(310%)}}.tta-loadingactions{display:flex;justify-content:center;margin-top:5px}.tta-loadinghint{margin-top:9px;color:var(--tta-faint);font-size:9px;line-height:1.4}
+      .tta-loading{position:fixed;inset:0;z-index:2147483001;display:none;place-items:center;background:#05080bd9;padding:20px;pointer-events:auto}.tta-loading.show{display:grid}.tta-loadingcard{width:min(420px,94vw);background:#111a23;border:1px solid #3b5266;border-radius:18px;padding:18px;box-shadow:0 22px 70px #000b;text-align:center}.tta-loadicon{width:52px;height:52px;margin:0 auto 12px;border-radius:16px;background:#172632;border:1px solid #345269;display:grid;place-items:center}.tta-spinner.xl{width:24px;height:24px;border-width:3px}.tta-loadingtitle{font-size:15px;font-weight:900;color:var(--tta-text);line-height:1.3}.tta-loadingdetail{min-height:34px;margin-top:7px;color:var(--tta-muted);font-size:11px;line-height:1.5}.tta-loadingbar{height:4px;margin:13px 0 12px;overflow:hidden;border-radius:999px;background:#091018}.tta-loadingbar span{display:block;width:38%;height:100%;border-radius:inherit;background:var(--tta-green);animation:tta-load-slide 1.25s ease-in-out infinite}@keyframes tta-load-slide{0%{transform:translateX(-120%)}50%{transform:translateX(165%)}100%{transform:translateX(310%)}}.tta-loadingactions{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:5px}.tta-loadinghint{margin-top:9px;color:var(--tta-faint);font-size:9px;line-height:1.4}
       .tta-openloader{position:absolute;inset:0;display:grid;place-items:center;background:var(--tta-bg);color:var(--tta-muted);text-align:center;padding:24px}.tta-openloader>div{display:flex;flex-direction:column;align-items:center;gap:11px}.tta-openloader strong{color:var(--tta-text);font-size:14px}.tta-openloader small{font-size:10px;color:var(--tta-faint)}
       .tta-toast{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .16s ease,transform .16s ease,visibility .16s}.tta-toast.show{opacity:1;visibility:visible;transform:translate(-50%,-4px)}
       #tta-root[aria-busy="true"] .tta-shell{overflow:hidden}
-      @media(prefers-reduced-motion:reduce){.tta-loadingbar span,.tta-spinner{animation-duration:2.2s}.tta-item,.tta-btn,.tta-chip,.tta-iconbtn,.tta-back,.tta-pin,.tta-toast{transition:none}}
+      @media(prefers-reduced-motion:reduce){.tta-loadingbar span,.tta-spinner,.tta-fabspinner{animation-duration:2.2s}.tta-item,.tta-btn,.tta-chip,.tta-iconbtn,.tta-back,.tta-pin,.tta-toast{transition:none}}
     `;
     document.head.appendChild(s);
   }
@@ -221,6 +222,16 @@
     fab.addEventListener('click',e=>{if(fab.dataset.suppressClick==='1'){e.preventDefault();e.stopPropagation();return;}openAnalyzer();});
     window.addEventListener('resize',()=>applyFabPosition(fab),{passive:true});
   }
+  function updateFabState() {
+    const fab=document.getElementById('tta-fab');if(!fab)return;
+    const syncing=!!state.syncing;
+    fab.classList.toggle('syncing',syncing);
+    fab.setAttribute('aria-label',syncing?'Trade Analytics syncing':'Trade Analytics');
+    fab.title=syncing?'Trade history sync is running · tap to reopen':'Open Trade Analytics';
+    fab.innerHTML=syncing?'<span class="tta-fabspinner" aria-hidden="true"></span><span>Syncing…</span>':'<span class="dot"></span><span>Trade Analytics</span>';
+    fab.style.display=state.open?'none':'inline-flex';
+    requestAnimationFrame(()=>applyFabPosition(fab));
+  }
   function mount() {
     injectCss();
     if (!document.getElementById('tta-fab')) {
@@ -231,6 +242,7 @@
     if (!document.getElementById('tta-root')) {
       const root = document.createElement('div'); root.id = 'tta-root'; document.body.appendChild(root);
     }
+    updateFabState();
     render();
   }
 
@@ -442,7 +454,6 @@
     return `<div class="tta-header">${back?'<button class="tta-back" data-act="back" aria-label="Back" title="Back">‹</button>':''}<div class="tta-brand"><div class="tta-mark" aria-hidden="true">📈</div><div class="tta-brandcopy"><div class="tta-title">${esc(title)}${state.demo?'<span class="tta-demo">DEMO</span>':''}</div><div class="tta-sub">${esc(sub)}</div></div></div>${!back?'<button class="tta-iconbtn" data-act="settings" aria-label="Settings" title="Settings">⚙</button>':''}<button class="tta-iconbtn" data-act="close" aria-label="Close trade analyzer" title="Close">×</button></div>`;
   }
 
-
   function pinnedCountFor(items) {
     const pins=new Set((state.pinnedIds||[]).map(Number));let n=0;for(const x of items)if(pins.has(Number(x.id)))n++;return n;
   }
@@ -518,7 +529,6 @@
     return `${header('Add item','Search the complete Torn item catalog',true)}<div class="tta-content"><div class="tta-search"><input id="tta-search" placeholder="Search item name or ID…" value="${esc(state.search)}" autocomplete="off" aria-label="Search Torn items"></div>${!hasApiKey()?'<div class="tta-banner"><strong>Catalog preview:</strong> sample search results are available below. Add an API key in Settings to load the complete current Torn item catalog.</div>':`<div class="tta-catalogmeta"><strong>${qty(results.length)}</strong>&nbsp;matching · ${qty(state.catalog.length)} total Torn items loaded</div>`}${results.length?results.map(x=>`<div class="tta-result">${itemIcon(x)}<div class="tta-resultcopy"><div class="tta-itemname">${esc(x.name)}</div><small>#${x.id} · ${esc(x.type||'Item')}</small></div><button class="tta-btn" data-act="confirmAdd" data-id="${x.id}">Add</button></div>`).join(''):'<div class="tta-empty">No matching items.</div>'}</div>`;
   }
 
-
   function settingsHtml() {
     const when=state.sync.lastSync?new Date(state.sync.lastSync*1000).toLocaleString():'Never';
     const status=keySource();
@@ -533,18 +543,17 @@
       <div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Data storage: only locally on this device.<br>Data sharing: nobody.<br>Purpose: personal statistical analysis of automatically discovered item acquisitions and sales.<br>Key storage: locally only / not shared.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong>. Torn PDA's injected key remains supported as a fallback.</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.<br>Item catalog / market values updated: ${esc(catalogWhen)}.${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.pages||0)} log pages · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.<br>Player trades: ${qty(state.sync.diagnostics.tradesWithItems||0)} with items · ${qty(state.sync.diagnostics.tradeDetails||0)} detailed trades fetched · ${qty(state.sync.diagnostics.tradeTransactions||0)} allocated item rows.${state.sync.diagnostics.periodFrom?`<br>Period scanned: ${esc(dateStr(state.sync.diagnostics.periodFrom))} – ${esc(dateStr(Math.min(state.sync.diagnostics.periodTo||nowSec(),nowSec())))}`:'<br>Period scanned: all available history.'}`:''}</div><label>Hidden items · ${qty(hiddenItems.length)}</label>${hiddenHtml}<div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
   }
 
-
   function loadingHtml() {
     const b=state.busy||{};
-    return `<div id="tta-loading" class="tta-loading ${b.active?'show':''}" role="status" aria-live="polite" aria-hidden="${b.active?'false':'true'}"><div class="tta-loadingcard"><div class="tta-loadicon"><span class="tta-spinner xl"></span></div><div id="tta-loading-title" class="tta-loadingtitle">${esc(b.title||'Working…')}</div><div id="tta-loading-detail" class="tta-loadingdetail">${esc(b.detail||'Preparing your data…')}</div><div class="tta-loadingbar"><span></span></div><div class="tta-loadingactions"><button id="tta-loading-stop" class="tta-btn danger" data-act="cancelSync" ${b.cancellable?'':'hidden'}>Stop sync</button></div><div class="tta-loadinghint">The analyzer stays on this device. You can stop a history scan safely.</div></div></div>`;
+    return `<div id="tta-loading" class="tta-loading ${b.active?'show':''}" role="status" aria-live="polite" aria-hidden="${b.active?'false':'true'}"><div class="tta-loadingcard"><div class="tta-loadicon"><span class="tta-spinner xl"></span></div><div id="tta-loading-title" class="tta-loadingtitle">${esc(b.title||'Working…')}</div><div id="tta-loading-detail" class="tta-loadingdetail">${esc(b.detail||'Preparing your data…')}</div><div class="tta-loadingbar"><span></span></div><div class="tta-loadingactions"><button id="tta-loading-minimize" class="tta-btn secondary" data-act="minimizeSync" ${state.syncing?'':'hidden'}>— Minimize</button><button id="tta-loading-stop" class="tta-btn danger" data-act="cancelSync" ${b.cancellable?'':'hidden'}>Stop sync</button></div><div class="tta-loadinghint">Minimize to keep using Torn while the sync continues. You can reopen progress from the floating button at any time.</div></div></div>`;
   }
 
   function updateBusyDom() {
     const root=document.getElementById('tta-root'),el=document.getElementById('tta-loading'),b=state.busy||{};
     if(root)root.setAttribute('aria-busy',b.active?'true':'false');if(!el)return;
     el.classList.toggle('show',!!b.active);el.setAttribute('aria-hidden',b.active?'false':'true');
-    const title=document.getElementById('tta-loading-title'),detail=document.getElementById('tta-loading-detail'),stop=document.getElementById('tta-loading-stop');
-    if(title)title.textContent=b.title||'Working…';if(detail)detail.textContent=b.detail||'Preparing your data…';if(stop)stop.hidden=!b.cancellable;
+    const title=document.getElementById('tta-loading-title'),detail=document.getElementById('tta-loading-detail'),stop=document.getElementById('tta-loading-stop'),minimize=document.getElementById('tta-loading-minimize');
+    if(title)title.textContent=b.title||'Working…';if(detail)detail.textContent=b.detail||'Preparing your data…';if(stop)stop.hidden=!b.cancellable;if(minimize)minimize.hidden=!state.syncing;
   }
 
   function setBusy(active,title='',detail='',cancellable=false) {
@@ -574,7 +583,7 @@
     const root=document.getElementById('tta-root');if(!root)return;
     const previousView=root.dataset.view||'',previousShell=root.querySelector('.tta-shell');
     const preserveScroll=options.preserveScroll??(previousView===state.view),previousScroll=preserveScroll&&previousShell?previousShell.scrollTop:0;
-    const fab=document.getElementById('tta-fab');if(fab)fab.style.display=state.open?'none':'inline-flex';
+    updateFabState();
     if(!state.open){root.classList.remove('show');root.setAttribute('aria-hidden','true');return;}
     root.classList.add('show');root.setAttribute('aria-hidden','false');
     const wasDemo=state.demo;state.demo=!hasApiKey()&&!state.transactions.length;if(wasDemo!==state.demo)resetAnalyticsCache();
@@ -599,7 +608,8 @@
       const granEl=e.target.closest('[data-gran]');
       if(granEl&&root.contains(granEl)){state.granularity=granEl.dataset.gran;save('granularity',state.granularity);await withBusy('Updating chart','Grouping realized profit by the selected interval…',async()=>render());return;}
       const el=e.target.closest('[data-act]');if(!el||!root.contains(el))return;e.stopPropagation();const act=el.dataset.act;
-      if(act==='close'){state.open=false;setBusy(false);render();}
+      if(act==='close'){state.open=false;if(!state.syncing)setBusy(false);render();}
+      else if(act==='minimizeSync'){state.open=false;render();}
       else if(act==='back'){state.view='dashboard';state.search='';render();}
       else if(act==='settings'){state.view='settings';render();}
       else if(act==='addItem'){state.view='add';await withBusy('Loading catalog','Preparing the Torn item catalog…',async()=>{await ensureCatalog();render();});setTimeout(()=>document.getElementById('tta-search')?.focus(),30);}
@@ -688,19 +698,19 @@
   }
 
   function relevantLogTypes(all) {
-  const paidContext=/(item market|bazaar|abroad|foreign|travel|shop|auction|market)/i;
-  const paidAction=/\b(buy|bought|purchase|purchased|sell|sold|sale|listed|listing|win|won)\b/i;
-  const itemMovement=/(item|plushie|flower|drug|weapon|armor|armour|temporary).*(buy|bought|purchase|purchased|sell|sold|sale|receive|received|gain|gained|find|found|reward|loot|won|win)|(buy|bought|purchase|purchased|sell|sold|sale|receive|received|gain|gained|find|found|reward|loot|won|win).*(item|plushie|flower|drug|weapon|armor|armour|temporary)/i;
-  const freeContext=/(crime success|organized crime success|city find|mission reward|seasonal gift|christmas town|easter egg hunt|halloween basket|job special|company special|event reward|competition reward|reward|loot|items? incoming|item.*received|item.*gained|item.*found)/i;
-  const byId=new Map();
-  (all||[]).forEach(x=>{
-    const id=Number(x?.id),title=String(x?.title||'');
-    if(/\btrade\b/i.test(title))return;
-    if(id && ((paidContext.test(title) && paidAction.test(title)) || itemMovement.test(title) || freeContext.test(title) || KNOWN_TRANSACTION_LOGS.has(id))) byId.set(id,{...x,id});
-  });
-  KNOWN_TRANSACTION_LOGS.forEach((meta,id)=>{if(!byId.has(id))byId.set(id,{id,title:`${meta.source} ${meta.side}`});});
-  return [...byId.values()].sort((a,b)=>a.id-b.id);
-}
+    const paidContext=/(item market|bazaar|abroad|foreign|travel|shop|auction|market)/i;
+    const paidAction=/\b(buy|bought|purchase|purchased|sell|sold|sale|listed|listing|win|won)\b/i;
+    const itemMovement=/(item|plushie|flower|drug|weapon|armor|armour|temporary).*(buy|bought|purchase|purchased|sell|sold|sale|receive|received|gain|gained|find|found|reward|loot|won|win)|(buy|bought|purchase|purchased|sell|sold|sale|receive|received|gain|gained|find|found|reward|loot|won|win).*(item|plushie|flower|drug|weapon|armor|armour|temporary)/i;
+    const freeContext=/(crime success|organized crime success|city find|mission reward|seasonal gift|christmas town|easter egg hunt|halloween basket|job special|company special|event reward|competition reward|reward|loot|items? incoming|item.*received|item.*gained|item.*found)/i;
+    const byId=new Map();
+    (all||[]).forEach(x=>{
+      const id=Number(x?.id),title=String(x?.title||'');
+      if(/\btrade\b/i.test(title))return;
+      if(id && ((paidContext.test(title) && paidAction.test(title)) || itemMovement.test(title) || freeContext.test(title) || KNOWN_TRANSACTION_LOGS.has(id))) byId.set(id,{...x,id});
+    });
+    KNOWN_TRANSACTION_LOGS.forEach((meta,id)=>{if(!byId.has(id))byId.set(id,{id,title:`${meta.source} ${meta.side}`});});
+    return [...byId.values()].sort((a,b)=>a.id-b.id);
+  }
 
   function classify(title) {
     title=String(title||'').toLowerCase();
@@ -719,35 +729,35 @@
   }
 
   function normalizeItems(data) {
-  data=data||{};
-  const out=[];
-  const push=(id,q=1)=>{id=Number(id);q=Number(q)||1;if(id>0&&q>0)out.push({id,qty:q});};
-  const itemKeys=new Set(['items','item','items_bought','items_sold','item_bought','item_sold','items_gained','item_gained','items_received','item_received','reward_items','reward_item','loot_items','loot_item','found_items','found_item']);
-  const visit=(v,defaultQty=1,depth=0)=>{
-    if(v==null||depth>8)return;
-    if(typeof v==='number' || (typeof v==='string' && /^\d+$/.test(v))){push(v,defaultQty);return;}
-    if(Array.isArray(v)){v.forEach(z=>visit(z,defaultQty,depth+1));return;}
-    if(typeof v!=='object')return;
-    const id=v.id??v.item_id??v.itemId;
-    const hasQty=('qty'in v)||('quantity'in v)||('amount'in v)||('count'in v);
-    if(id!=null && (hasQty || (depth>0 && Object.keys(v).length<10))){
-      const q=v.qty??v.quantity??v.amount??v.count??defaultQty;
-      push(id,q); return;
-    }
-    Object.entries(v).forEach(([k,val])=>{
-      const lk=String(k).toLowerCase();
-      if(/^\d+$/.test(k)){
-        if(typeof val==='number') push(k,val);
-        else if(Array.isArray(val)) push(k,val[0]??defaultQty);
-        else if(val && typeof val==='object') push(k,val.qty??val.quantity??val.amount??val.count??defaultQty);
-      } else if(itemKeys.has(lk)) visit(val,v.quantity??v.qty??v.amount??v.count??defaultQty,depth+1);
-      else if(val && typeof val==='object' && depth<2 && /item|reward|loot|gain|receive|find|found/.test(lk)) visit(val,defaultQty,depth+1);
-    });
-  };
-  const q=data.quantity??data.qty??data.amount??data.count??1;
-  visit(data,q,0);
-  const merged=new Map();out.forEach(x=>merged.set(x.id,(merged.get(x.id)||0)+x.qty));return [...merged].map(([id,qty])=>({id,qty}));
-}
+    data=data||{};
+    const out=[];
+    const push=(id,q=1)=>{id=Number(id);q=Number(q)||1;if(id>0&&q>0)out.push({id,qty:q});};
+    const itemKeys=new Set(['items','item','items_bought','items_sold','item_bought','item_sold','items_gained','item_gained','items_received','item_received','reward_items','reward_item','loot_items','loot_item','found_items','found_item']);
+    const visit=(v,defaultQty=1,depth=0)=>{
+      if(v==null||depth>8)return;
+      if(typeof v==='number' || (typeof v==='string' && /^\d+$/.test(v))){push(v,defaultQty);return;}
+      if(Array.isArray(v)){v.forEach(z=>visit(z,defaultQty,depth+1));return;}
+      if(typeof v!=='object')return;
+      const id=v.id??v.item_id??v.itemId;
+      const hasQty=('qty'in v)||('quantity'in v)||('amount'in v)||('count'in v);
+      if(id!=null && (hasQty || (depth>0 && Object.keys(v).length<10))){
+        const q=v.qty??v.quantity??v.amount??v.count??defaultQty;
+        push(id,q); return;
+      }
+      Object.entries(v).forEach(([k,val])=>{
+        const lk=String(k).toLowerCase();
+        if(/^\d+$/.test(k)){
+          if(typeof val==='number') push(k,val);
+          else if(Array.isArray(val)) push(k,val[0]??defaultQty);
+          else if(val && typeof val==='object') push(k,val.qty??val.quantity??val.amount??val.count??defaultQty);
+        } else if(itemKeys.has(lk)) visit(val,v.quantity??v.qty??v.amount??v.count??defaultQty,depth+1);
+        else if(val && typeof val==='object' && depth<2 && /item|reward|loot|gain|receive|find|found/.test(lk)) visit(val,defaultQty,depth+1);
+      });
+    };
+    const q=data.quantity??data.qty??data.amount??data.count??1;
+    visit(data,q,0);
+    const merged=new Map();out.forEach(x=>merged.set(x.id,(merged.get(x.id)||0)+x.qty));return [...merged].map(([id,qty])=>({id,qty}));
+  }
 
   function cashTotal(data, qtyValue) {
     const totalKeys=['cost_total','total_cost','total','price_total','money','amount_paid','proceeds','revenue','sale_total','total_value'];
@@ -778,7 +788,6 @@
     });
   }
 
-
   function tradeItemGroups(entries,userId,outgoing=true) {
     const map=new Map(),me=Number(userId);
     for(const entry of entries||[]){
@@ -805,9 +814,6 @@
     return total;
   }
 
-  // Start from each item type's market-value subtotal, then distribute the cash
-  // surplus/deficit equally by item type. Negative allocations are floored at $0
-  // and the remaining deficit is redistributed evenly among the other item types.
   function allocateTradeGroupTotals(groups,targetTotal) {
     if(!groups?.length)return[];
     const target=Math.max(0,Number(targetTotal)||0);
@@ -860,18 +866,18 @@
   }
 
   function nextLogPageParams(data,currentParams) {
-  const next=data?._metadata?.links?.next;
-  if(!next)return null;
-  try {
-    const u=new URL(next,API+'/user/log');
-    const params={...currentParams};
-    for(const [k,v] of u.searchParams.entries()){
-      if(k==='key'||k==='comment')continue;
-      params[k]=v;
-    }
-    return params;
-  } catch(_) { return null; }
-}
+    const next=data?._metadata?.links?.next;
+    if(!next)return null;
+    try {
+      const u=new URL(next,API+'/user/log');
+      const params={...currentParams};
+      for(const [k,v] of u.searchParams.entries()){
+        if(k==='key'||k==='comment')continue;
+        params[k]=v;
+      }
+      return params;
+    } catch(_) { return null; }
+  }
 
   async function inspectActiveKey() {
     const raw=await apiGet('/key/info');
@@ -936,7 +942,6 @@
     }
   }
 
-
   async function fetchCompletedTradeHeaders(period) {
     let params={cat:'finished',limit:100,sort:'DESC',to:period.to};if(period.from>0)params.from=period.from;
     const found=new Map(),seenPages=new Set();let pages=0;
@@ -989,7 +994,7 @@
     if(!hasApiKey()){state.demo=true;toast('Add a Torn API key in Settings → API Key to sync real history.');return;}
     const period=selectedPeriodBounds();
     const periodText=period.from>0?`${dateStr(period.from)} – ${dateStr(Math.min(period.to,nowSec()))}`:'all available history';
-    state.syncing=true;state.syncCancel=false;setSyncProgress(`Preparing historical scan for ${periodText}…`);setBusy(true,'Syncing trade history',state.syncProgress,true);
+    state.syncing=true;state.syncCancel=false;updateFabState();setSyncProgress(`Preparing historical scan for ${periodText}…`);setBusy(true,'Syncing trade history',state.syncProgress,true);
     const syncBtn=document.querySelector('#tta-root [data-act="sync"]');if(syncBtn){syncBtn.disabled=true;syncBtn.innerHTML='<span class="tta-sync"><span class="tta-spinner"></span>Syncing</span>';}
     await nextPaint();
     try{
@@ -1014,7 +1019,7 @@
       else if(!fresh.length)setSyncProgress(`${mode} completed for ${periodText} · ${qty(scan.diagnostics.rawRows)} raw logs scanned · no recognizable item acquisitions or sales found.`);
       else setSyncProgress(`Historical sync complete for ${periodText} · ${qty(fresh.length)} item rows · ${qty(scan.diagnostics.tradesWithItems||0)} player trades · ${qty(scan.diagnostics.rawRows)} raw logs across ${qty(scan.diagnostics.pages)} log pages.`);
     }catch(e){setSyncProgress(`Sync error: ${e.message}`);}
-    finally{state.syncing=false;setBusy(false);render();}
+    finally{state.syncing=false;updateFabState();setBusy(false);render();}
   }
 
   function demoCatalog(){return[
@@ -1033,7 +1038,6 @@
     return a;
   }
 
-  // Keep the UI alive through Torn's SPA navigation and delayed DOM swaps.
   const boot=()=>{if(document.body)mount();else setTimeout(boot,250)}; boot();
   setInterval(()=>{if(!document.getElementById('tta-fab')||!document.getElementById('tta-root'))mount();},5000);
 })();
