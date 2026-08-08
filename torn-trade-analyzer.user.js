@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Trade Analyzer
 // @namespace    chadgian.torn.trade.analyzer
-// @version      0.1.1
+// @version      0.1.2
 // @description  Track selected Torn items, backfill buy/sell logs, calculate FIFO realized profit, and chart profit by day/week/month. Data stays on-device.
 // @author       chadgian + ChatGPT
 // @match        https://www.torn.com/*
@@ -14,12 +14,26 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.1.1';
+  const VERSION = '0.1.2';
   const API_KEY = '_###PDA-APIKEY###_';
   const NS = 'tta:v1:';
   const API = 'https://api.torn.com/v2';
   const REQUEST_GAP_MS = 800; // <=75 requests/minute, leaving headroom under Torn's 100/min user limit.
   const MAX_LOG_IDS_PER_REQUEST = 24;
+  const CATALOG_SCHEMA_VERSION = 2;
+  // Known Torn transaction log IDs. Dynamic /torn/logtypes discovery is still used.
+  const KNOWN_TRANSACTION_LOGS = new Map([
+    [1103, {side:'buy', source:'Item Market'}],
+    [1104, {side:'sell', source:'Item Market'}],
+    [1112, {side:'buy', source:'Item Market'}],
+    [1113, {side:'sell', source:'Item Market'}],
+    [1220, {side:'buy', source:'Bazaar'}],
+    [1221, {side:'sell', source:'Bazaar'}],
+    [1225, {side:'buy', source:'Bazaar'}],
+    [1226, {side:'sell', source:'Bazaar'}],
+    [4200, {side:'buy', source:'Torn Shop'}],
+    [4201, {side:'buy', source:'Foreign Market'}],
+  ]);
 
   const state = {
     open: false,
@@ -27,6 +41,7 @@
     tracked: load('tracked', []),
     transactions: load('transactions', []),
     catalog: load('catalog', []),
+    catalogVersion: load('catalogVersion', 0),
     logTypes: load('logTypes', []),
     sync: load('sync', { lastSync: 0, firstSyncComplete: false }),
     dateMode: load('dateMode', '30d'),
@@ -112,23 +127,24 @@
     const s = document.createElement('style');
     s.id = 'tta-css';
     s.textContent = `
-      :root{--tta-bg:#0b0f14;--tta-panel:#111821;--tta-card:#151e28;--tta-soft:#1f2c39;--tta-line:#34475a;--tta-text:#f7fbff;--tta-muted:#b9c8d6;--tta-faint:#91a5b7;--tta-green:#63efb1;--tta-red:#ff7d8a;--tta-blue:#7fc1ff;--tta-yellow:#ffda73;}
+      :root{--tta-bg:#0b0f14;--tta-panel:#111821;--tta-card:#151e28;--tta-soft:#1f2c39;--tta-line:#34475a;--tta-text:#f7fbff;--tta-muted:#b9c8d6;--tta-faint:#91a5b7;--tta-green:#63efb1;--tta-red:#ff7d8a;--tta-blue:#7fc1ff;--tta-yellow:#ffda73}
       #tta-root,#tta-root *,#tta-fab,#tta-fab *{box-sizing:border-box}
       #tta-root button,#tta-fab{font-family:inherit;-webkit-appearance:none;appearance:none;margin:0;line-height:1.15;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
       #tta-fab{position:fixed;right:14px;bottom:86px;z-index:2147483000;min-height:42px;border:1px solid #38566a;border-radius:18px;background:linear-gradient(135deg,#1a352f,#183951);color:#fff;box-shadow:0 12px 35px #0009;padding:11px 14px;font:700 12px/1.1 system-ui;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-align:center}
       #tta-fab .dot{width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:var(--tta-green);box-shadow:0 0 14px var(--tta-green)}
       #tta-root{position:fixed;inset:0;z-index:2147482999;background:#06090dcc;backdrop-filter:blur(5px);display:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--tta-text);font-size:14px;line-height:1.4}
       #tta-root.show{display:block}.tta-shell{position:absolute;inset:0;background:var(--tta-bg);overflow:auto;overscroll-behavior:contain;padding-bottom:max(38px,env(safe-area-inset-bottom))}.tta-header{position:sticky;top:0;z-index:4;display:flex;align-items:center;gap:9px;min-height:62px;padding:10px 12px;background:#0b0f14f2;border-bottom:1px solid var(--tta-line);backdrop-filter:blur(8px)}
-      .tta-brand{display:flex;align-items:center;gap:9px;min-width:0;flex:1}.tta-mark{width:38px;height:38px;flex:0 0 38px;border-radius:11px;background:linear-gradient(145deg,#183d32,#17394f);display:grid;place-items:center;font-size:19px;line-height:1}.tta-brandcopy{min-width:0}.tta-title{color:var(--tta-text);font-size:15px;font-weight:850;letter-spacing:.15px;line-height:1.2}.tta-sub{font-size:11px;color:var(--tta-muted);margin-top:2px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tta-iconbtn,.tta-back{display:grid;place-items:center;flex:0 0 40px;width:40px;height:40px;min-width:40px;min-height:40px;padding:0!important;border:1px solid var(--tta-line);background:var(--tta-card);color:var(--tta-text)!important;border-radius:11px;text-align:center;font-size:19px;font-weight:700;line-height:1}.tta-iconbtn:active,.tta-back:active{transform:scale(.96);background:var(--tta-soft)}.tta-back{font-size:26px}
+      .tta-brand{display:flex;align-items:center;gap:9px;min-width:0;flex:1}.tta-mark{width:38px;height:38px;flex:0 0 38px;border-radius:11px;background:linear-gradient(145deg,#183d32,#17394f);display:grid;place-items:center;font-size:19px;line-height:1}.tta-brandcopy{min-width:0}.tta-title{color:var(--tta-text);font-size:15px;font-weight:850;letter-spacing:.15px;line-height:1.2}.tta-sub{font-size:11px;color:var(--tta-muted);margin-top:2px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .tta-iconbtn,.tta-back{display:grid;place-items:center;flex:0 0 40px;width:40px;height:40px;min-width:40px;min-height:40px;padding:0!important;border:1px solid var(--tta-line);background:var(--tta-card);color:var(--tta-text)!important;border-radius:11px;text-align:center;font-size:19px;font-weight:700;line-height:1}.tta-iconbtn:active,.tta-back:active{transform:scale(.96);background:var(--tta-soft)}.tta-back{font-size:26px}
       .tta-content{width:100%;padding:14px;max-width:760px;margin:0 auto}.tta-period{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:11px}.tta-period>div{min-width:0}.tta-period strong{display:block;color:var(--tta-text);font-size:14px;line-height:1.25}.tta-period small{color:var(--tta-muted);font-size:10px}
       .tta-chips{display:flex;gap:7px;overflow:auto;padding:1px 1px 4px;scrollbar-width:none}.tta-chips::-webkit-scrollbar{display:none}.tta-chip{display:inline-flex;align-items:center;justify-content:center;min-height:34px;white-space:nowrap;border:1px solid var(--tta-line);background:var(--tta-card);color:var(--tta-muted)!important;border-radius:999px;padding:7px 11px;font-size:11px;font-weight:750}.tta-chip.active{color:#052016!important;background:var(--tta-green);border-color:var(--tta-green)}
       .tta-summary{display:grid;grid-template-columns:1.45fr 1fr 1fr;gap:8px;margin:12px 0}.tta-stat{background:linear-gradient(180deg,var(--tta-card),#111821);border:1px solid var(--tta-line);border-radius:14px;padding:11px;min-width:0;text-align:center}.tta-stat label{display:block;font-size:9px;color:var(--tta-muted);text-transform:uppercase;letter-spacing:.75px;line-height:1.3}.tta-stat b{display:block;margin-top:5px;color:var(--tta-text);font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tta-stat.main b{font-size:20px}.pos{color:var(--tta-green)!important}.neg{color:var(--tta-red)!important}
       .tta-chartcard{background:linear-gradient(180deg,#151f2a,#10171f);border:1px solid var(--tta-line);border-radius:16px;padding:13px 11px 11px;margin-bottom:14px;overflow:hidden}.tta-charthead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}.tta-charthead h3{margin:0;color:var(--tta-text);font-size:13px;line-height:1.3}.tta-charthead small{color:var(--tta-muted)!important;font-size:10px}.tta-seg{display:flex;align-items:center;justify-content:center;background:#090e14;border:1px solid var(--tta-line);border-radius:10px;padding:2px}.tta-seg button{display:inline-flex;align-items:center;justify-content:center;min-height:30px;border:0;background:transparent;color:var(--tta-muted)!important;font-size:10px;font-weight:800;padding:6px 8px;border-radius:7px}.tta-seg button.active{background:var(--tta-soft);color:var(--tta-text)!important}.tta-svg{width:100%;height:160px;display:block;overflow:visible}.tta-axis{fill:#d6e1eb!important;color:#d6e1eb!important;font-size:10px;font-weight:650;paint-order:stroke;stroke:#10171f;stroke-width:1.5px;stroke-linejoin:round}.tta-zero{stroke:#7c91a4;stroke-width:1.25}.tta-bar-pos{fill:var(--tta-green)}.tta-bar-neg{fill:var(--tta-red)}.tta-grid{stroke:#344657;stroke-width:1}.tta-empty{min-height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;color:var(--tta-muted);font-size:12px;line-height:1.5;padding:18px}
       .tta-sectionhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 1px 10px}.tta-sectionhead h3{color:var(--tta-text);font-size:14px;margin:0;line-height:1.3}.tta-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;border:1px solid transparent;border-radius:10px;padding:8px 12px;font-size:11px;font-weight:850;text-align:center;background:var(--tta-green);color:#052016!important;white-space:nowrap}.tta-btn:active{transform:scale(.98)}.tta-btn.secondary{background:var(--tta-card);border-color:var(--tta-line);color:var(--tta-text)!important}.tta-btn.danger{background:#35181e;color:#ffc3c9!important;border-color:#71313d}.tta-btn:disabled{opacity:.55;transform:none}
-      .tta-item{background:var(--tta-card);border:1px solid var(--tta-line);border-radius:15px;margin-bottom:10px;overflow:hidden}.tta-itemtop{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:11px;align-items:center;min-height:70px;padding:10px 11px;cursor:pointer}.tta-thumbwrap{position:relative;width:48px;height:48px;display:grid;place-items:center;align-self:center;justify-self:center;background:#0b1219;border:1px solid #2e4152;border-radius:12px;overflow:hidden}.tta-thumb{display:block;width:40px;height:40px;max-width:40px;max-height:40px;object-fit:contain;object-position:center;padding:0;margin:0;background:transparent;border:0}.tta-thumbfallback{display:none;position:absolute;inset:0;place-items:center;color:var(--tta-faint);font-size:20px}.tta-itemcopy{min-width:0;align-self:center}.tta-itemname{color:var(--tta-text);font-weight:850;font-size:13px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tta-source{font-size:10px;color:var(--tta-muted);margin-top:4px;line-height:1.35;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.tta-profitbox{min-width:72px;text-align:right;align-self:center}.tta-profit{text-align:right;font-size:13px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.25}.tta-chevron{font-size:10px;color:var(--tta-muted);margin-top:4px;line-height:1.2}.tta-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--tta-line);border-top:1px solid var(--tta-line)}.tta-metric{background:#111922;padding:9px 7px;text-align:center;min-width:0}.tta-metric small{display:block;color:var(--tta-muted);font-size:9px;text-transform:uppercase;letter-spacing:.55px;line-height:1.3}.tta-metric b{display:block;margin-top:3px;color:var(--tta-text);font-size:12px;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}.tta-accordion{display:none;padding:12px;border-top:1px solid var(--tta-line);background:#0f161e}.tta-item.expanded .tta-accordion{display:block}.tta-minirow{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:11px}.tta-ministat{background:#151f2a;border:1px solid var(--tta-line);border-radius:10px;padding:9px 6px;text-align:center;min-width:0}.tta-ministat small{display:block;font-size:9px;color:var(--tta-muted);line-height:1.25}.tta-ministat b{display:block;margin-top:3px;color:var(--tta-text);font-size:11px;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}.tta-spark{height:92px;width:100%;display:block;background:#0c1218;border-radius:10px;margin-top:7px}.tta-note{font-size:10px;color:var(--tta-muted);margin-top:9px;line-height:1.5}.tta-linkrow{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:11px}
-      .tta-search{position:sticky;top:62px;z-index:3;background:var(--tta-bg);padding:4px 0 11px}.tta-search input{width:100%;min-height:44px;border-radius:12px;border:1px solid var(--tta-line);background:var(--tta-card);color:var(--tta-text)!important;font-size:13px;padding:11px 13px;outline:none}.tta-search input::placeholder{color:#91a5b7;opacity:1}.tta-search input:focus{border-color:var(--tta-blue);box-shadow:0 0 0 2px #7fc1ff22}.tta-result{display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:11px;background:var(--tta-card);border:1px solid var(--tta-line);border-radius:13px;padding:9px 10px;margin-bottom:8px;min-height:68px}.tta-resultcopy{min-width:0}.tta-result small{display:block;margin-top:3px;color:var(--tta-muted);font-size:10px;line-height:1.3}
+      .tta-item{background:var(--tta-card);border:1px solid var(--tta-line);border-radius:15px;margin-bottom:10px;overflow:hidden}.tta-itemtop{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:11px;align-items:center;min-height:70px;padding:10px 11px;cursor:pointer}.tta-thumbwrap{position:relative;width:48px;height:48px;display:grid;place-items:center;align-self:center;justify-self:center;background:#0b1219;border:1px solid #2e4152;border-radius:12px;overflow:hidden}.tta-thumb{display:block;width:40px;height:40px;max-width:40px;max-height:40px;object-fit:contain;object-position:center;padding:0;margin:0;background:transparent;border:0}.tta-thumbfallback{display:none;position:absolute;inset:0;place-items:center;color:var(--tta-faint);font-size:20px}.tta-itemcopy{min-width:0;align-self:center}.tta-itemname{color:var(--tta-text);font-weight:850;font-size:13px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tta-source{font-size:10px;color:var(--tta-muted);margin-top:4px;line-height:1.35;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.tta-profitbox{min-width:72px;text-align:right;align-self:center}.tta-profit{font-size:13px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.25}.tta-chevron{font-size:10px;color:var(--tta-muted);margin-top:4px;line-height:1.2}.tta-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--tta-line);border-top:1px solid var(--tta-line)}.tta-metric{background:#111922;padding:9px 7px;text-align:center;min-width:0}.tta-metric small{display:block;color:var(--tta-muted);font-size:9px;text-transform:uppercase;letter-spacing:.55px;line-height:1.3}.tta-metric b{display:block;margin-top:3px;color:var(--tta-text);font-size:12px;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}.tta-accordion{display:none;padding:12px;border-top:1px solid var(--tta-line);background:#0f161e}.tta-item.expanded .tta-accordion{display:block}.tta-minirow{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:11px}.tta-ministat{background:#151f2a;border:1px solid var(--tta-line);border-radius:10px;padding:9px 6px;text-align:center;min-width:0}.tta-ministat small{display:block;font-size:9px;color:var(--tta-muted);line-height:1.25}.tta-ministat b{display:block;margin-top:3px;color:var(--tta-text);font-size:11px;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}.tta-note{font-size:10px;color:var(--tta-muted);margin-top:9px;line-height:1.5}.tta-linkrow{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:11px}
+      .tta-search{position:sticky;top:62px;z-index:3;background:var(--tta-bg);padding:4px 0 11px}.tta-search input{width:100%;min-height:44px;border-radius:12px;border:1px solid var(--tta-line);background:var(--tta-card);color:var(--tta-text)!important;font-size:13px;padding:11px 13px;outline:none}.tta-search input::placeholder{color:#91a5b7;opacity:1}.tta-search input:focus{border-color:var(--tta-blue);box-shadow:0 0 0 2px #7fc1ff22}.tta-result{display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:11px;background:var(--tta-card);border:1px solid var(--tta-line);border-radius:13px;padding:9px 10px;margin-bottom:8px;min-height:68px}.tta-resultcopy{min-width:0}.tta-result small{display:block;margin-top:3px;color:var(--tta-muted);font-size:10px;line-height:1.3}.tta-catalogmeta{display:flex;align-items:center;justify-content:center;text-align:center;color:var(--tta-muted);font-size:10px;margin:3px 0 10px}
       .tta-banner{background:#152330;border:1px solid #36556d;border-radius:13px;padding:11px 12px;margin-bottom:11px;font-size:10px;line-height:1.5;color:#d0dce7}.tta-banner strong{color:#fff}.tta-sync{display:inline-flex;align-items:center;justify-content:center;gap:8px}.tta-spinner{width:13px;height:13px;border:2px solid #ffffff44;border-top-color:#fff;border-radius:50%;animation:tta-spin .8s linear infinite}@keyframes tta-spin{to{transform:rotate(360deg)}}
-      .tta-settings label{display:block;font-size:10px;color:var(--tta-muted);margin:14px 0 5px}.tta-settings input{width:100%;background:var(--tta-card);border:1px solid var(--tta-line);color:var(--tta-text)!important;border-radius:10px;padding:10px}.tta-settings-actions{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:12px}.tta-tos{font-size:10px;line-height:1.6;color:#d0dce7;background:#101820;border:1px solid var(--tta-line);border-radius:12px;padding:11px}.tta-tos strong{color:#fff}.tta-toast{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:2147483002;background:#22313e;color:#fff;border:1px solid #536a7e;border-radius:999px;padding:9px 13px;font-size:11px;box-shadow:0 10px 30px #0008;max-width:88vw;text-align:center;line-height:1.35}
+      .tta-settings label{display:block;font-size:10px;color:var(--tta-muted);margin:14px 0 5px}.tta-settings-actions{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:12px}.tta-tos{font-size:10px;line-height:1.6;color:#d0dce7;background:#101820;border:1px solid var(--tta-line);border-radius:12px;padding:11px}.tta-tos strong{color:#fff}.tta-toast{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:2147483002;background:#22313e;color:#fff;border:1px solid #536a7e;border-radius:999px;padding:9px 13px;font-size:11px;box-shadow:0 10px 30px #0008;max-width:88vw;text-align:center;line-height:1.35}
       .tta-demo{color:var(--tta-yellow);font-size:9px;font-weight:850;margin-left:6px}.tta-customdates{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:9px 0}.tta-customdates input{width:100%;min-height:40px;background:var(--tta-card);border:1px solid var(--tta-line);color:var(--tta-text)!important;border-radius:9px;padding:8px;font-size:11px;color-scheme:dark}
       @media(max-width:460px){.tta-content{padding:12px}.tta-summary{grid-template-columns:1fr 1fr}.tta-stat.main{grid-column:1/-1}.tta-sectionhead{align-items:stretch}.tta-sectionhead h3{display:flex;align-items:center;min-height:38px}.tta-itemtop{grid-template-columns:46px minmax(0,1fr) auto}.tta-thumbwrap{width:46px;height:46px}.tta-thumb{width:38px;height:38px}.tta-charthead{align-items:flex-start}.tta-seg{flex:0 0 auto}}
       @media(max-width:360px){.tta-header{padding-left:9px;padding-right:9px;gap:7px}.tta-mark{width:34px;height:34px;flex-basis:34px}.tta-iconbtn,.tta-back{width:38px;height:38px;min-width:38px;min-height:38px;flex-basis:38px}.tta-title{font-size:14px}.tta-sub{font-size:10px}.tta-content{padding:10px}.tta-itemtop{grid-template-columns:42px minmax(0,1fr);gap:9px}.tta-thumbwrap{width:42px;height:42px;grid-row:1/2}.tta-thumb{width:35px;height:35px}.tta-profitbox{grid-column:2;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;text-align:left}.tta-profit,.tta-chevron{text-align:left;margin:0}.tta-minirow{grid-template-columns:1fr 1fr}.tta-ministat:last-child{grid-column:1/-1}.tta-sectionhead{flex-direction:column}.tta-sectionhead .tta-btn{width:100%}.tta-period{align-items:flex-start}.tta-period .tta-btn{flex:0 0 auto}.tta-charthead{flex-direction:column}.tta-seg{width:100%}.tta-seg button{flex:1}.tta-result{grid-template-columns:42px minmax(0,1fr)}.tta-result .tta-btn{grid-column:1/-1;width:100%}.tta-customdates{grid-template-columns:1fr}}
@@ -267,13 +283,14 @@
 
   function addItemHtml() {
     const q=state.search.trim().toLowerCase();
-    const results=(state.catalog||[]).filter(x=>!state.tracked.some(t=>Number(t.id)===Number(x.id)) && (!q || x.name.toLowerCase().includes(q) || String(x.id)===q)).slice(0,60);
-    return `${header('Add item','Search Torn item catalog',true)}<div class="tta-content"><div class="tta-search"><input id="tta-search" placeholder="Search item name or ID…" value="${esc(state.search)}" autocomplete="off" aria-label="Search Torn items"></div>${!hasInjectedKey()?'<div class="tta-banner"><strong>Catalog preview:</strong> sample search results are available below. With the Torn PDA key attached, the full current Torn item catalog loads from the API.</div>':''}${results.length?results.map(x=>`<div class="tta-result">${itemIcon(x)}<div class="tta-resultcopy"><div class="tta-itemname">${esc(x.name)}</div><small>#${x.id} · ${esc(x.type||'Item')}</small></div><button class="tta-btn" data-act="confirmAdd" data-id="${x.id}">Add</button></div>`).join(''):'<div class="tta-empty">No matching items.</div>'}</div>`;
+    const available=(state.catalog||[]).filter(x=>!state.tracked.some(t=>Number(t.id)===Number(x.id)));
+    const results=available.filter(x=>!q || x.name.toLowerCase().includes(q) || String(x.id)===q);
+    return `${header('Add item','Search the complete Torn item catalog',true)}<div class="tta-content"><div class="tta-search"><input id="tta-search" placeholder="Search item name or ID…" value="${esc(state.search)}" autocomplete="off" aria-label="Search Torn items"></div>${!hasInjectedKey()?'<div class="tta-banner"><strong>Catalog preview:</strong> sample search results are available below. With the Torn PDA key attached, the complete current Torn item catalog loads from the API.</div>':`<div class="tta-catalogmeta"><strong>${qty(results.length)}</strong>&nbsp;matching · ${qty(state.catalog.length)} total Torn items loaded</div>`}${results.length?results.map(x=>`<div class="tta-result">${itemIcon(x)}<div class="tta-resultcopy"><div class="tta-itemname">${esc(x.name)}</div><small>#${x.id} · ${esc(x.type||'Item')}</small></div><button class="tta-btn" data-act="confirmAdd" data-id="${x.id}">Add</button></div>`).join(''):'<div class="tta-empty">No matching items.</div>'}</div>`;
   }
 
   function settingsHtml() {
     const when=state.sync.lastSync?new Date(state.sync.lastSync*1000).toLocaleString():'Never';
-    return `${header('Settings','Storage, API access & reset',true)}<div class="tta-content tta-settings"><div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Storage: only locally in this browser/Torn PDA WebView.<br>Sharing: nobody; the script sends data only to Torn's official API.<br>Purpose: personal statistical analysis of selected item purchases and sales.<br>Key: supplied by Torn PDA at runtime; never uploaded to GitHub or another server.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong> (currently a Full/custom-key selection).</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local transaction records</label><div class="tta-banner">${qty(state.transactions.length)} normalized item transaction entries. Raw Torn logs are not retained.</div><div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
+    return `${header('Settings','Storage, API access & reset',true)}<div class="tta-content tta-settings"><div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Storage: only locally in this browser/Torn PDA WebView.<br>Sharing: nobody; the script sends data only to Torn's official API.<br>Purpose: personal statistical analysis of selected item purchases and sales.<br>Key: supplied by Torn PDA at runtime; never uploaded to GitHub or another server.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong> (currently a Full/custom-key selection).</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.</div><div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
   }
 
   function render() {
@@ -299,7 +316,7 @@
       else if(act==='removeItem'){removeTracked(Number(el.dataset.id));}
       else if(act==='sync'){syncAll();}
       else if(act==='cancelSync'){state.syncCancel=true;state.syncProgress='Stopping after the current API request…';render();}
-      else if(act==='refreshCatalog'){state.catalog=[];save('catalog',[]);await ensureCatalog(true);toast('Item catalog refreshed.');}
+      else if(act==='refreshCatalog'){state.catalog=[];state.catalogVersion=0;save('catalog',[]);save('catalogVersion',0);await ensureCatalog(true);toast(`Complete item catalog refreshed · ${qty(state.catalog.length)} items.`);}
       else if(act==='resetData'){if(confirm('Reset all Torn Trade Analyzer tracked items and local transaction data?')){['tracked','transactions','sync'].forEach(k=>localStorage.removeItem(NS+k));state.tracked=[];state.transactions=[];state.sync={lastSync:0,firstSyncComplete:false};state.expanded=null;toast('Analyzer data reset.');}}
     }));
     root.querySelectorAll('[data-date]').forEach(el=>el.addEventListener('click',()=>{state.dateMode=el.dataset.date;save('dateMode',state.dateMode);render();}));
@@ -309,14 +326,19 @@
   }
 
   async function ensureCatalog(force=false) {
-    if (state.demo) return;
-    if (state.catalog.length && !force) return;
+    if (state.demo && !hasInjectedKey()) return;
+    const cacheCurrent=state.catalog.length && state.catalogVersion===CATALOG_SCHEMA_VERSION;
+    if (cacheCurrent && !force) return;
     if (!hasInjectedKey()) { state.catalog=demoCatalog(); return; }
     try {
-      state.syncProgress='Loading current Torn item catalog…';render();
+      state.syncProgress='Loading complete Torn item catalog…';render();
       const data=await apiGet('/torn/items');
-      state.catalog=(data.items||[]).filter(x=>x && x.id && x.name).map(x=>({id:x.id,name:x.name,image:x.image,type:x.type||'',marketPrice:x.value?.market_price||0}));
-      save('catalog',state.catalog); state.syncProgress='';
+      state.catalog=(data.items||[])
+        .filter(x=>x && Number(x.id)>0 && x.name)
+        .map(x=>({id:Number(x.id),name:String(x.name),image:x.image||'',type:x.type||'',marketPrice:x.value?.market_price||0}))
+        .sort((a,b)=>a.name.localeCompare(b.name)||a.id-b.id);
+      state.catalogVersion=CATALOG_SCHEMA_VERSION;
+      save('catalog',state.catalog);save('catalogVersion',state.catalogVersion);state.syncProgress='';
     } catch(e) { state.syncProgress=''; toast(e.message); }
   }
 
@@ -332,8 +354,8 @@
     save('tracked',state.tracked);save('transactions',state.transactions);state.expanded=null;render();toast(`${x?.name||'Item'} removed.`);
   }
 
-  async function ensureLogTypes() {
-    if (state.logTypes.length) return state.logTypes;
+  async function ensureLogTypes(force=false) {
+    if (state.logTypes.length && !force) return state.logTypes;
     const data=await apiGet('/torn/logtypes');
     state.logTypes=data.logtypes||[];save('logTypes',state.logTypes);return state.logTypes;
   }
@@ -341,7 +363,13 @@
   function relevantLogTypes(all) {
     const context=/(item market|bazaar|abroad|travel.*(item|goods)|shop|auction)/i;
     const action=/\b(buy|bought|purchase|sell|sold|sale|win)\b/i;
-    return all.filter(x=>context.test(x.title||'') && action.test(x.title||''));
+    const byId=new Map();
+    (all||[]).forEach(x=>{
+      const id=Number(x?.id);
+      if(id && ((context.test(x.title||'') && action.test(x.title||'')) || KNOWN_TRANSACTION_LOGS.has(id))) byId.set(id,{...x,id});
+    });
+    KNOWN_TRANSACTION_LOGS.forEach((meta,id)=>{if(!byId.has(id))byId.set(id,{id,title:`${meta.source} ${meta.side}`});});
+    return [...byId.values()].sort((a,b)=>a.id-b.id);
   }
   function classify(title) {
     title=String(title||'').toLowerCase();
@@ -355,29 +383,33 @@
   }
 
   function normalizeItems(data) {
+    data=data||{};
     const out=[];
     const push=(id,q=1)=>{id=Number(id);q=Number(q)||1;if(id>0&&q>0)out.push({id,qty:q});};
-    const visit=v=>{
+    const visit=(v,defaultQty=1)=>{
       if(v==null)return;
-      if(Array.isArray(v)){v.forEach(z=>visit(z));return;}
+      if(typeof v==='number' || (typeof v==='string' && /^\d+$/.test(v))){push(v,defaultQty);return;}
+      if(Array.isArray(v)){v.forEach(z=>visit(z,defaultQty));return;}
       if(typeof v==='object'){
-        if(('id'in v||'item_id'in v) && ('qty'in v||'quantity'in v||'amount'in v)){push(v.id??v.item_id,v.qty??v.quantity??v.amount);return;}
-        if('id'in v && Object.keys(v).length<8){push(v.id,v.qty??v.quantity??1);return;}
+        if(('id'in v||'item_id'in v||'itemId'in v) && ('qty'in v||'quantity'in v||'amount'in v)){push(v.id??v.item_id??v.itemId,v.qty??v.quantity??v.amount);return;}
+        if(('id'in v||'item_id'in v||'itemId'in v) && Object.keys(v).length<10){push(v.id??v.item_id??v.itemId,v.qty??v.quantity??v.amount??defaultQty);return;}
         Object.entries(v).forEach(([k,val])=>{
           if(/^\d+$/.test(k) && (Array.isArray(val)||typeof val==='number')) push(k,Array.isArray(val)?val[0]:val);
-          else if(k==='items'||k==='item'||k==='items_bought'||k==='items_sold'||k==='item_bought'||k==='item_sold') visit(val);
+          else if(['items','item','items_bought','items_sold','item_bought','item_sold'].includes(k)) visit(val,data.quantity??data.qty??data.amount??defaultQty);
         });
       }
     };
-    visit(data.items);visit(data.item);visit(data.items_bought);visit(data.items_sold);visit(data.item_bought);visit(data.item_sold);
-    if(!out.length && (data.item_id||data.itemid)) push(data.item_id??data.itemid,data.quantity??data.qty??data.amount??1);
+    const q=data.quantity??data.qty??data.amount??1;
+    // Foreign-market logs such as 4201 can be {item: 274, quantity: N}.
+    visit(data.items,q);visit(data.item,q);visit(data.items_bought,q);visit(data.items_sold,q);visit(data.item_bought,q);visit(data.item_sold,q);
+    if(!out.length && (data.item_id||data.itemid||data.itemId)) push(data.item_id??data.itemid??data.itemId,q);
     const merged=new Map();out.forEach(x=>merged.set(x.id,(merged.get(x.id)||0)+x.qty));return [...merged].map(([id,qty])=>({id,qty}));
   }
 
   function cashTotal(data, qtyValue) {
-    const totalKeys=['cost_total','total_cost','total','price_total','money','amount_paid','proceeds','revenue','sale_total'];
+    const totalKeys=['cost_total','total_cost','total','price_total','money','amount_paid','proceeds','revenue','sale_total','total_value'];
     for(const k of totalKeys){const v=Number(data?.[k]);if(Number.isFinite(v)&&v>0)return v;}
-    const eachKeys=['cost_each','price_each','unit_price','price','cost'];
+    const eachKeys=['cost_each','price_each','unit_price','price','cost','value_each'];
     for(const k of eachKeys){const v=Number(data?.[k]);if(Number.isFinite(v)&&v>0)return v*Math.max(1,qtyValue||1);}
     return 0;
   }
@@ -386,13 +418,17 @@
   }
 
   function parseLogEntry(entry) {
-    const title=entry.details?.title||''; const side=classify(title); if(!side)return[];
-    const items=normalizeItems(entry.data||{}); if(!items.length)return[];
-    const totalAll=cashTotal(entry.data||{},items.reduce((s,x)=>s+x.qty,0)); const fee=side==='sell'?fees(entry.data||{}):0;
+    const logTypeId=Number(entry.details?.id)||0;
+    const known=KNOWN_TRANSACTION_LOGS.get(logTypeId);
+    const title=entry.details?.title||'';
+    const side=known?.side||classify(title); if(!side)return[];
+    const payload={...(entry.params||{}),...(entry.data||{})};
+    const items=normalizeItems(payload); if(!items.length)return[];
+    const totalAll=cashTotal(payload,items.reduce((s,x)=>s+x.qty,0)); const fee=side==='sell'?fees(payload):0;
     const totalQty=items.reduce((s,x)=>s+x.qty,0)||1;
     return items.filter(it=>state.tracked.some(t=>Number(t.id)===Number(it.id))).map(it=>{
       const ratio=it.qty/totalQty; const total=totalAll*ratio; const feeShare=fee*ratio;
-      return {id:`${entry.id}:${it.id}`,logId:entry.details?.id||0,timestamp:entry.timestamp,itemId:it.id,side,qty:it.qty,total,fee:feeShare,netTotal:side==='sell'?Math.max(0,total-feeShare):total,source:sourceFrom(title),title};
+      return {id:`${entry.id}:${it.id}`,logId:logTypeId,timestamp:entry.timestamp,itemId:it.id,side,qty:it.qty,total,fee:feeShare,netTotal:side==='sell'?Math.max(0,total-feeShare):total,source:known?.source||sourceFrom(title),title};
     });
   }
 
@@ -421,13 +457,13 @@
     if(!hasInjectedKey()){state.demo=true;toast('Preview mode: attach a Torn PDA custom key with User → Log to sync real history.');render();return;}
     state.syncing=true;state.syncCancel=false;state.syncProgress='Checking Torn log types…';render();
     try {
-      await ensureCatalog(); const types=relevantLogTypes(await ensureLogTypes());
+      await ensureCatalog(); const types=relevantLogTypes(await ensureLogTypes(true));
       if(!types.length) throw new Error('No relevant Torn buy/sell log types were detected.');
       const fresh=await fetchHistory(types.map(x=>x.id));
       const merged=new Map(state.transactions.map(x=>[x.id,x])); fresh.forEach(x=>merged.set(x.id,x));
       state.transactions=[...merged.values()].filter(t=>state.tracked.some(i=>Number(i.id)===Number(t.itemId))).sort((a,b)=>a.timestamp-b.timestamp);
       save('transactions',state.transactions); state.sync.lastSync=nowSec(); state.sync.firstSyncComplete=!state.syncCancel;save('sync',state.sync);
-      state.syncProgress=state.syncCancel?`Sync stopped. ${qty(fresh.length)} matching rows collected this run.`:`Historical sync complete · ${qty(state.transactions.length)} tracked transaction rows stored locally.`;
+      state.syncProgress=state.syncCancel?`Sync stopped. ${qty(fresh.length)} matching rows collected this run.`:`Historical sync complete · ${qty(state.transactions.length)} tracked transaction rows stored locally across ${qty(types.length)} transaction log types.`;
     } catch(e) {
       state.syncProgress=`Sync error: ${e.message}`;
     } finally {state.syncing=false;render();}
