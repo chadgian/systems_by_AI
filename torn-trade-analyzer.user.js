@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn Trade Analyzer
 // @namespace    chadgian.torn.trade.analyzer
-// @version      0.1.15
-// @description  Fast Torn trade analytics with incremental missing-data sync, verified-trade skipping, reload resume, market-value allocation, cached FIFO, and item details. Data stays on-device.
+// @version      0.1.16
+// @description  Fast Torn trade analytics with safe incremental missing-data sync, verified-trade skipping, reload resume, market-value allocation, cached FIFO, and item details. Data stays on-device.
 // @author       chadgian + ChatGPT
 // @match        https://www.torn.com/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.1.15';
+  const VERSION = '0.1.16';
   const API_KEY = '_###PDA-APIKEY###_';
   const NS = 'tta:v1:';
   const API = 'https://api.torn.com/v2';
@@ -1040,7 +1040,7 @@
     return a;
   }
 
-  // v0.1.13 resumable sync engine. These later declarations intentionally override
+  // Resumable + incremental sync engine. These later declarations intentionally override
   // the original syncAll() path above while retaining it as a fallback reference.
   const SYNC_JOB_SCHEMA_VERSION = 1;
   const SYNC_CACHE_SCHEMA_VERSION = 1;
@@ -1062,7 +1062,7 @@
   function saveSyncCache(){if(syncCacheMem)save('syncCache',syncCacheMem);}
   function incrementalPeriod(period,kind) {
     const c=ensureSyncCache(),fromKey=kind==='trade'?'tradeCoverageFrom':'logCoverageFrom',toKey=kind==='trade'?'tradeCoverageTo':'logCoverageTo';
-    const coveredFrom=Number(c[fromKey]),coveredTo=Number(c[toKey])||0;
+    const rawFrom=c[fromKey],coveredFrom=rawFrom==null?NaN:Number(rawFrom),coveredTo=Number(c[toKey])||0;
     if(Number.isFinite(coveredFrom)&&coveredFrom<=period.from&&coveredTo>0){
       if(period.to<=coveredTo)return null;
       return {from:Math.max(period.from,coveredTo-INCREMENTAL_OVERLAP_SEC),to:period.to,incremental:true};
@@ -1073,8 +1073,8 @@
     const c=ensureSyncCache();
     const apply=(kind,p)=>{
       if(!p)return;const fk=kind==='trade'?'tradeCoverageFrom':'logCoverageFrom',tk=kind==='trade'?'tradeCoverageTo':'logCoverageTo';
-      const oldFrom=Number(c[fk]);if(!p.incremental)c[fk]=Number.isFinite(oldFrom)?Math.min(oldFrom,p.from):p.from;
-      c[tk]=Math.max(Number(c[tk])||0,p.to);
+      const rawOldFrom=c[fk],oldFrom=rawOldFrom==null?NaN:Number(rawOldFrom);if(!p.incremental)c[fk]=Number.isFinite(oldFrom)?Math.min(oldFrom,p.from):p.from;
+      c[tk]=Math.max(Number(c[tk])||0,Math.min(p.to,nowSec()));
     };
     apply('log',job.logScanPeriod);apply('trade',job.tradeScanPeriod);saveSyncCache();
   }
