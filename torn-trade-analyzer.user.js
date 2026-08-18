@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn Trade Analyzer
 // @namespace    chadgian.torn.trade.analyzer
-// @version      0.1.17
-// @description  Fast Torn trade analytics with an acquisition FIFO ledger, sortable/filterable history, safe incremental sync, verified-trade skipping, market-value allocation, and cached analytics. Data stays on-device.
+// @version      0.1.18
+// @description  Fast Torn trade analytics with acquisition-date profit attribution, a FIFO ledger, sortable/filterable history, safe incremental sync, and cached analytics. Data stays on-device.
 // @author       chadgian + ChatGPT
 // @match        https://www.torn.com/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.1.17';
+  const VERSION = '0.1.18';
   const API_KEY = '_###PDA-APIKEY###_';
   const NS = 'tta:v1:';
   const API = 'https://api.torn.com/v2';
@@ -262,14 +262,14 @@
   let demoTxCache=null;
   const perfCache={
     txRef:null,byItem:new Map(),lastById:new Map(),itemIds:[],fifo:new Map(),summaries:new Map(),series:new Map(),overall:new Map(),
-    catalogRef:null,catalogMap:new Map(),trackedTxRef:null,trackedCatalogRef:null,tracked:[],ledgerTxRef:null,ledgerRows:[],searchTimer:null,legacySearchTimer:null,ledgerSearchTimer:null
+    catalogRef:null,catalogMap:new Map(),trackedTxRef:null,trackedCatalogRef:null,tracked:[],ledgerTxRef:null,ledgerRows:[],ledgerByItem:new Map(),searchTimer:null,legacySearchTimer:null,ledgerSearchTimer:null
   };
 
   function resetAnalyticsCache() {
     perfCache.txRef=null;perfCache.byItem=new Map();perfCache.lastById=new Map();perfCache.itemIds=[];
     perfCache.fifo.clear();perfCache.summaries.clear();perfCache.series.clear();perfCache.overall.clear();
     perfCache.trackedTxRef=null;perfCache.trackedCatalogRef=null;perfCache.tracked=[];
-    perfCache.ledgerTxRef=null;perfCache.ledgerRows=[];
+    perfCache.ledgerTxRef=null;perfCache.ledgerRows=[];perfCache.ledgerByItem=new Map();
   }
 
   function effectiveTransactions() {
@@ -430,7 +430,7 @@
   function acquisitionLedgerRows() {
     const idx=ensureTxIndex();
     if(perfCache.ledgerTxRef===idx.txRef)return perfCache.ledgerRows;
-    const ledger=[];
+    const ledger=[],ledgerByItem=new Map();
     for(const itemId of idx.itemIds){
       const tx=idx.byItem.get(itemId)||[],lots=[];let lotHead=0;
       for(const t of tx){
@@ -438,7 +438,7 @@
         if(t.side==='buy'){
           const cost=Math.max(0,Number(t.total)||0),item=catalogItem(itemId);
           const row={id:String(t.id),acquiredAt:Number(t.timestamp)||0,itemId:Number(itemId),itemName:item.name,itemType:item.type||'Item',qty:q,method:acquisitionMethod(t),source:String(t.source||''),title:String(t.title||''),free:!!t.free,costTotal:cost,unitCost:q?cost/q:0,soldQty:0,soldProceeds:0,realizedCost:0,realizedProfit:0,unsoldQty:q,status:'unsold',saleCount:0,firstSoldAt:0,lastSoldAt:0,saleSources:[],_saleSources:new Set()};
-          ledger.push(row);lots.push({remaining:q,unit:row.unitCost,row});
+          ledger.push(row);if(!ledgerByItem.has(Number(itemId)))ledgerByItem.set(Number(itemId),[]);ledgerByItem.get(Number(itemId)).push(row);lots.push({remaining:q,unit:row.unitCost,row});
         }else if(t.side==='sell'){
           let remain=q;const net=Math.max(0,Number(t.netTotal??t.total)||0),saleUnit=q?net/q:0;
           while(remain>1e-9&&lotHead<lots.length){
@@ -455,7 +455,14 @@
       row.unsoldQty=Math.max(0,row.qty-row.soldQty);row.status=row.soldQty<=1e-9?'unsold':row.unsoldQty<=1e-9?'sold':'partial';row.saleSources=[...row._saleSources];delete row._saleSources;
     }
     ledger.sort((a,b)=>b.acquiredAt-a.acquiredAt||String(b.id).localeCompare(String(a.id)));
-    perfCache.ledgerTxRef=idx.txRef;perfCache.ledgerRows=ledger;return ledger;
+    perfCache.ledgerTxRef=idx.txRef;perfCache.ledgerRows=ledger;perfCache.ledgerByItem=ledgerByItem;return ledger;
+  }
+
+  function ledgerRowsForItem(itemId) {
+    acquisitionLedgerRows();return perfCache.ledgerByItem.get(Number(itemId))||[];
+  }
+  function acquisitionAttributedProfit(itemId,from,to) {
+    let profit=0;for(const row of ledgerRowsForItem(itemId)){if(row.acquiredAt>=from&&row.acquiredAt<=to)profit+=Number(row.realizedProfit)||0;}return profit;
   }
 
   function ledgerRangeBounds() {
@@ -522,13 +529,13 @@
     const rows=filteredLedgerRows(),sum=ledgerSummary(rows),methods=ledgerMethodOptions(),limit=Math.max(1,Number(state.ledgerLimit)||200),shown=Math.min(limit,rows.length);
     const sortTh=(key,label)=>`<th><button data-act="ledgerSort" data-key="${key}" data-label="${esc(label)}" class="${state.ledgerSort===key?'active':''}">${esc(label)}${ledgerSortArrow(key)}</button></th>`;
     return `${header('Acquisition History','FIFO lot ledger · cached acquisition and sale history',true)}<div class="tta-content">
-      <div class="tta-ledgerintro"><div><strong>Acquisition ledger</strong><small>Each row is one recorded acquisition lot. Later sales are matched back to it using the same FIFO method as the dashboard. Profit shown here is realized only on the quantity already sold.</small></div></div>
+      <div class="tta-ledgerintro"><div><strong>Acquisition ledger</strong><small>Each row is one recorded acquisition lot. Later sales are matched back to it using the same FIFO method as the dashboard. Realized profit is attributed to this acquisition date, not the later sale date.</small></div></div>
       <div class="tta-ledgerfilters"><div class="tta-searchwrap tta-ledgersearch"><span class="tta-searchglyph">⌕</span><input id="tta-ledger-search" class="tta-history-search" placeholder="Search item, ID, source or sale method…" value="${esc(state.ledgerSearch||'')}" autocomplete="off"><button class="tta-clearsearch" data-act="clearLedgerSearch" aria-label="Clear ledger search" ${state.ledgerSearch?'':'hidden'}>×</button></div><select data-ledger-filter="source"><option value="all">All acquisition types</option>${methods.map(x=>`<option value="${esc(x)}" ${state.ledgerSource===x?'selected':''}>${esc(x)}</option>`).join('')}</select><select data-ledger-filter="status"><option value="all" ${state.ledgerStatus==='all'?'selected':''}>All sale statuses</option><option value="sold" ${state.ledgerStatus==='sold'?'selected':''}>Sold</option><option value="partial" ${state.ledgerStatus==='partial'?'selected':''}>Partial</option><option value="unsold" ${state.ledgerStatus==='unsold'?'selected':''}>Unsold</option></select><select data-ledger-filter="range"><option value="all" ${state.ledgerRange==='all'?'selected':''}>All cached history</option><option value="7d" ${state.ledgerRange==='7d'?'selected':''}>Last 7 days</option><option value="30d" ${state.ledgerRange==='30d'?'selected':''}>Last 30 days</option><option value="month" ${state.ledgerRange==='month'?'selected':''}>Last 1 month</option><option value="dashboard" ${state.ledgerRange==='dashboard'?'selected':''}>Dashboard period</option></select></div>
       <div class="tta-ledgersummary"><div class="tta-ministat"><small>Acquisition lots</small><b id="tta-ledger-lots">${qty(sum.lots)}</b></div><div class="tta-ministat"><small>Items acquired</small><b id="tta-ledger-qty">${qty(sum.qty)}</b></div><div class="tta-ministat"><small>FIFO units sold</small><b id="tta-ledger-sold">${qty(sum.sold)}</b></div><div class="tta-ministat"><small>Realized profit</small><b id="tta-ledger-profit" class="${sum.profit>=0?'pos':'neg'}">${money(sum.profit,true)}</b></div></div>
       <div class="tta-ledgermeta"><span id="tta-ledger-meta">Showing ${qty(shown)} of ${qty(rows.length)} acquisition lots</span><span>Tap a column heading to sort</span></div>
       <div class="tta-ledgerwrap"><table class="tta-ledgertable"><thead><tr>${sortTh('acquiredAt','Date / time')}${sortTh('item','Item')}${sortTh('qty','Qty')}${sortTh('method','Acquired via')}${sortTh('costTotal','Bought for')}${sortTh('soldQty','Sold qty')}${sortTh('soldProceeds','Sold for')}${sortTh('realizedProfit','Profit')}${sortTh('status','Status')}</tr></thead><tbody id="tta-ledger-body">${ledgerTableBodyHtml(rows)}</tbody></table></div>
       <div class="tta-ledgermore"><button id="tta-ledger-more" class="tta-btn secondary" data-act="ledgerMore" ${shown>=rows.length?'hidden':''}>Load 200 more</button></div>
-      <div class="tta-note">For free acquisitions such as crimes, gifts, finds and rewards, cost basis is $0. Player Trade acquisition/sale values use the analyzer's market-value allocation plus the equal cash surplus/deficit rule. A partially sold lot shows only realized proceeds/profit for the FIFO-matched quantity.</div>
+      <div class="tta-note">For free acquisitions such as crimes, gifts, finds and rewards, cost basis is $0. Player Trade acquisition/sale values use the analyzer's market-value allocation plus the equal cash surplus/deficit rule. A partially sold lot shows only realized proceeds/profit for the FIFO-matched quantity. Dashboard profit periods and charts use the acquisition date of each matched lot.</div>
     </div>`;
   }
 
@@ -540,8 +547,9 @@
       if(x.timestamp<from||x.timestamp>to)continue;
       events.push(x);
       if(x.side==='buy'){bought+=x.qty;buySpend+=x.total;if(x.source)sources.add(x.source);}
-      else if(x.side==='sell'){sold+=x.qty;sellRevenue+=(x.netTotal??x.total);profit+=(x.realizedProfit||0);unmatched+=(x.unmatchedQty||0);}
+      else if(x.side==='sell'){sold+=x.qty;sellRevenue+=(x.netTotal??x.total);unmatched+=(x.unmatchedQty||0);}
     }
+    profit=acquisitionAttributedProfit(id,from,to);
     const result={bought,sold,buySpend,sellRevenue,profit,sources:[...sources],unmatched,events,remainingQty:a.remainingQty,remainingCost:a.remainingCost};
     perfCache.summaries.set(key,result);return result;
   }
@@ -556,13 +564,11 @@
   function profitSeries(itemId=null) {
     const cacheKey=`${periodCacheKey()}|${state.granularity}|${itemId==null?'all':Number(itemId)}`;
     if(perfCache.series.has(cacheKey))return perfCache.series.get(cacheKey);
-    const {from,to}=dateRange(),m=new Map(),ids=itemId!=null?[Number(itemId)]:ensureTxIndex().itemIds;
+    const {from,to}=dateRange(),m=new Map(),rows=itemId==null?acquisitionLedgerRows():ledgerRowsForItem(Number(itemId));
     const keyFn=state.granularity==='week'?weekKey:state.granularity==='month'?monthKey:dayKey;
-    for(const id of ids){
-      for(const x of fifoAnalytics(id).events){
-        if(x.side!=='sell'||x.timestamp<from||x.timestamp>to)continue;
-        const k=keyFn(x.timestamp);m.set(k,(m.get(k)||0)+(x.realizedProfit||0));
-      }
+    for(const row of rows){
+      if(row.acquiredAt<from||row.acquiredAt>to||row.soldQty<=0)continue;
+      const k=keyFn(row.acquiredAt);m.set(k,(m.get(k)||0)+(Number(row.realizedProfit)||0));
     }
     const result=[...m.entries()].sort((a,b)=>a[0]-b[0]).map(([t,v])=>({t,v}));perfCache.series.set(cacheKey,result);return result;
   }
@@ -630,8 +636,8 @@
       ${state.syncProgress?`<div class="tta-banner tta-status-banner"><span class="tta-status-dot"></span><span id="tta-sync-progress-text">${esc(state.syncProgress)}</span></div>`:''}
       <div class="tta-chips">${[['7d','7 days'],['30d','30 days'],['month','1 month'],['all','All'],['custom','Custom']].map(([k,l])=>`<button class="tta-chip ${state.dateMode===k?'active':''}" data-date="${k}">${l}</button>`).join('')}</div>
       ${state.dateMode==='custom'?`<div class="tta-customdates"><input type="date" data-custom="from" value="${esc(state.customFrom)}"><input type="date" data-custom="to" value="${esc(state.customTo)}"></div>`:''}
-      <div class="tta-summary"><div class="tta-stat main"><label>Realized profit</label><b class="${s.profit>=0?'pos':'neg'}">${money(s.profit)}</b></div><div class="tta-stat"><label>Acquired</label><b>${qty(s.bought)}</b></div><div class="tta-stat"><label>Sold</label><b>${qty(s.sold)}</b></div></div>
-      <div class="tta-chartcard"><div class="tta-charthead"><h3>Profit earned</h3><div class="tta-seg">${['day','week','month'].map(g=>`<button class="${state.granularity===g?'active':''}" data-gran="${g}">${g[0].toUpperCase()+g.slice(1)}</button>`).join('')}</div></div>${chartSvg(profitSeries())}</div>
+      <div class="tta-summary"><div class="tta-stat main"><label>Profit · acquisition date</label><b class="${s.profit>=0?'pos':'neg'}">${money(s.profit)}</b></div><div class="tta-stat"><label>Acquired</label><b>${qty(s.bought)}</b></div><div class="tta-stat"><label>Sold</label><b>${qty(s.sold)}</b></div></div>
+      <div class="tta-chartcard"><div class="tta-charthead"><h3>Profit by acquisition date</h3><div class="tta-seg">${['day','week','month'].map(g=>`<button class="${state.granularity===g?'active':''}" data-gran="${g}">${g[0].toUpperCase()+g.slice(1)}</button>`).join('')}</div></div>${chartSvg(profitSeries())}</div>
       <div class="tta-sectionhead"><h3>Items in selected period · <span id="tta-item-count">${qty(rows.length)}</span></h3><button class="tta-btn secondary" data-act="ledger">☷ Acquisition history</button></div>
       <div class="tta-listtools"><div class="tta-searchwrap"><span class="tta-searchglyph">⌕</span><input id="tta-history-search" class="tta-history-search" placeholder="Search item name or ID…" value="${esc(state.itemSearch||'')}" autocomplete="off" aria-label="Search discovered items"><button class="tta-clearsearch" data-act="clearItemSearch" aria-label="Clear search" ${state.itemSearch?'':'hidden'}>×</button></div><button id="tta-sort-btn" class="tta-btn secondary tta-sortbtn" data-act="cycleSort" title="Tap to change sorting">⇅ ${esc(sortLabel())}</button></div>
       <div id="tta-list-meta" class="tta-listmeta">${esc(itemListMetaText(rows,allItems))}</div>
@@ -651,7 +657,7 @@
       const freeQty=s.events.filter(x=>x.side==='buy'&&x.free).reduce((n,x)=>n+x.qty,0);
       const playerTradeCount=new Set(s.events.filter(x=>x.source==='Player Trade').map(x=>x.tradeId)).size;
       const recordedInventoryValue=marketPrice*Math.max(0,Number(s.remainingQty)||0);
-      details=`<div class="tta-minirow"><div class="tta-ministat"><small>Avg cost</small><b>${money(avgBuy,true)}</b></div><div class="tta-ministat"><small>Avg sell</small><b>${money(avgSell,true)}</b></div><div class="tta-ministat"><small>Inventory</small><b>${qty(s.remainingQty)}</b></div></div><div class="tta-minirow"><div class="tta-ministat"><small>Market value</small><b>${marketPrice?money(marketPrice,true):'—'}</b></div><div class="tta-ministat"><small>Recorded inventory value</small><b>${marketPrice?money(recordedInventoryValue,true):'—'}</b></div><div class="tta-ministat"><small>FIFO cost basis</small><b>${money(s.remainingCost,true)}</b></div></div><div class="tta-charthead"><h3>${esc(item.name)} profit</h3><small>#${item.id} · ${esc(itemType)} · ${s.events.length} events</small></div>${chartSvg(series,92)}<div class="tta-note">Market value is Torn's catalog market price per item. Recorded inventory value is your analyzer-recorded remaining quantity × that market value; it is not a live inventory count.${playerTradeCount?` · ${qty(playerTradeCount)} player trade(s) use each item type's market-value subtotal plus an equal share of that trade's cash surplus/deficit.`:''} Sold quantity counts every recognized sale event, including outgoing items from authoritative completed player-trade details. Profit uses FIFO: each sale is matched against your oldest recorded acquisitions. ${s.unmatched?`⚠ ${qty(s.unmatched)} sold item(s) have no earlier recorded acquisition cost, so those units are excluded from realized profit.`:'All sold units in this period have recorded cost basis.'}${freeQty?` · ${qty(freeQty)} free-acquired item(s) use a $0 cost basis.`:''}</div>`;
+      details=`<div class="tta-minirow"><div class="tta-ministat"><small>Avg cost</small><b>${money(avgBuy,true)}</b></div><div class="tta-ministat"><small>Avg sell</small><b>${money(avgSell,true)}</b></div><div class="tta-ministat"><small>Inventory</small><b>${qty(s.remainingQty)}</b></div></div><div class="tta-minirow"><div class="tta-ministat"><small>Market value</small><b>${marketPrice?money(marketPrice,true):'—'}</b></div><div class="tta-ministat"><small>Recorded inventory value</small><b>${marketPrice?money(recordedInventoryValue,true):'—'}</b></div><div class="tta-ministat"><small>FIFO cost basis</small><b>${money(s.remainingCost,true)}</b></div></div><div class="tta-charthead"><h3>${esc(item.name)} profit</h3><small>#${item.id} · ${esc(itemType)} · ${s.events.length} events</small></div>${chartSvg(series,92)}<div class="tta-note">Market value is Torn's catalog market price per item. Recorded inventory value is your analyzer-recorded remaining quantity × that market value; it is not a live inventory count.${playerTradeCount?` · ${qty(playerTradeCount)} player trade(s) use each item type's market-value subtotal plus an equal share of that trade's cash surplus/deficit.`:''} Sold quantity counts every recognized sale event, including outgoing items from authoritative completed player-trade details. Profit uses FIFO: each sale is matched against your oldest recorded acquisitions, but the realized profit is attributed to the date that matched lot was acquired rather than the sale date. ${s.unmatched?`⚠ ${qty(s.unmatched)} sold item(s) have no earlier recorded acquisition cost, so those units are excluded from realized profit.`:'All sold units in this period have recorded cost basis.'}${freeQty?` · ${qty(freeQty)} free-acquired item(s) use a $0 cost basis.`:''}</div>`;
     }
     return `<div class="tta-item ${exp?'expanded':''}" data-item="${item.id}"><div class="tta-itemtop" data-act="toggleItem" data-id="${item.id}" role="button" tabindex="0" aria-expanded="${exp?'true':'false'}">${itemIcon(item)}<div class="tta-itemcopy"><div class="tta-itemname">${esc(item.name)}</div><div class="tta-source">${esc(src)}</div><div class="tta-itemfacts"><span class="tta-factpill market">Market ${esc(marketText)}</span><span class="tta-factpill">${esc(itemType)}</span><span class="tta-factpill">#${item.id}</span></div></div><div class="tta-profitbox"><div class="tta-cardactions"><button class="tta-pin ${pinned?'active':''}" data-act="togglePin" data-id="${item.id}" aria-pressed="${pinned?'true':'false'}" aria-label="${pinned?'Unpin':'Pin'} ${esc(item.name)}" title="${pinned?'Unpin item':'Pin item to top'}">${pinned?'📌':'☆'}</button><button class="tta-hideitem" data-act="hideItem" data-id="${item.id}" aria-label="Hide ${esc(item.name)}" title="Hide item">🙈</button></div><div class="tta-profit ${s.profit>=0?'pos':'neg'}">${money(s.profit,true)}</div><div class="tta-chevron">${exp?'▲ details':'▼ details'}</div></div></div><div class="tta-metrics"><div class="tta-metric"><small>Acquired</small><b>${qty(s.bought)}</b></div><div class="tta-metric"><small>Sold</small><b>${qty(s.sold)}</b></div><div class="tta-metric"><small>Profit</small><b class="${s.profit>=0?'pos':'neg'}">${money(s.profit,true)}</b></div></div><div class="tta-accordion">${details}</div></div>`;
   }
