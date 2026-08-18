@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn Trade Analyzer
 // @namespace    chadgian.torn.trade.analyzer
-// @version      0.1.13
-// @description  Fast Torn trade analytics with reload-resumable background sync, authoritative player trades, market-value allocation, cached FIFO, item details, and progressive loading. Data stays on-device.
+// @version      0.1.14
+// @description  Fast Torn trade analytics with corrected sold-item detection, exhaustive completed-trade details, reload-resumable sync, market-value allocation, cached FIFO, and item details. Data stays on-device.
 // @author       chadgian + ChatGPT
 // @match        https://www.torn.com/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.1.13';
+  const VERSION = '0.1.14';
   const API_KEY = '_###PDA-APIKEY###_';
   const NS = 'tta:v1:';
   const API = 'https://api.torn.com/v2';
@@ -32,6 +32,7 @@
     [1226, {side:'sell', source:'Bazaar'}],
     [4200, {side:'buy', source:'Torn Shop'}],
     [4201, {side:'buy', source:'Foreign Market'}],
+    [4210, {side:'sell', source:'Torn Shop'}],
   ]);
 
   const state = {
@@ -517,7 +518,7 @@
       const freeQty=s.events.filter(x=>x.side==='buy'&&x.free).reduce((n,x)=>n+x.qty,0);
       const playerTradeCount=new Set(s.events.filter(x=>x.source==='Player Trade').map(x=>x.tradeId)).size;
       const recordedInventoryValue=marketPrice*Math.max(0,Number(s.remainingQty)||0);
-      details=`<div class="tta-minirow"><div class="tta-ministat"><small>Avg cost</small><b>${money(avgBuy,true)}</b></div><div class="tta-ministat"><small>Avg sell</small><b>${money(avgSell,true)}</b></div><div class="tta-ministat"><small>Inventory</small><b>${qty(s.remainingQty)}</b></div></div><div class="tta-minirow"><div class="tta-ministat"><small>Market value</small><b>${marketPrice?money(marketPrice,true):'—'}</b></div><div class="tta-ministat"><small>Recorded inventory value</small><b>${marketPrice?money(recordedInventoryValue,true):'—'}</b></div><div class="tta-ministat"><small>FIFO cost basis</small><b>${money(s.remainingCost,true)}</b></div></div><div class="tta-charthead"><h3>${esc(item.name)} profit</h3><small>#${item.id} · ${esc(itemType)} · ${s.events.length} events</small></div>${chartSvg(series,92)}<div class="tta-note">Market value is Torn's catalog market price per item. Recorded inventory value is your analyzer-recorded remaining quantity × that market value; it is not a live inventory count.${playerTradeCount?` · ${qty(playerTradeCount)} player trade(s) use each item type's market-value subtotal plus an equal share of that trade's cash surplus/deficit.`:''} Profit uses FIFO: each sale is matched against your oldest recorded acquisitions. ${s.unmatched?`⚠ ${qty(s.unmatched)} sold item(s) have no earlier recorded acquisition cost, so those units are excluded from realized profit.`:'All sold units in this period have recorded cost basis.'}${freeQty?` · ${qty(freeQty)} free-acquired item(s) use a $0 cost basis.`:''}</div>`;
+      details=`<div class="tta-minirow"><div class="tta-ministat"><small>Avg cost</small><b>${money(avgBuy,true)}</b></div><div class="tta-ministat"><small>Avg sell</small><b>${money(avgSell,true)}</b></div><div class="tta-ministat"><small>Inventory</small><b>${qty(s.remainingQty)}</b></div></div><div class="tta-minirow"><div class="tta-ministat"><small>Market value</small><b>${marketPrice?money(marketPrice,true):'—'}</b></div><div class="tta-ministat"><small>Recorded inventory value</small><b>${marketPrice?money(recordedInventoryValue,true):'—'}</b></div><div class="tta-ministat"><small>FIFO cost basis</small><b>${money(s.remainingCost,true)}</b></div></div><div class="tta-charthead"><h3>${esc(item.name)} profit</h3><small>#${item.id} · ${esc(itemType)} · ${s.events.length} events</small></div>${chartSvg(series,92)}<div class="tta-note">Market value is Torn's catalog market price per item. Recorded inventory value is your analyzer-recorded remaining quantity × that market value; it is not a live inventory count.${playerTradeCount?` · ${qty(playerTradeCount)} player trade(s) use each item type's market-value subtotal plus an equal share of that trade's cash surplus/deficit.`:''} Sold quantity counts every recognized sale event, including outgoing items from authoritative completed player-trade details. Profit uses FIFO: each sale is matched against your oldest recorded acquisitions. ${s.unmatched?`⚠ ${qty(s.unmatched)} sold item(s) have no earlier recorded acquisition cost, so those units are excluded from realized profit.`:'All sold units in this period have recorded cost basis.'}${freeQty?` · ${qty(freeQty)} free-acquired item(s) use a $0 cost basis.`:''}</div>`;
     }
     return `<div class="tta-item ${exp?'expanded':''}" data-item="${item.id}"><div class="tta-itemtop" data-act="toggleItem" data-id="${item.id}" role="button" tabindex="0" aria-expanded="${exp?'true':'false'}">${itemIcon(item)}<div class="tta-itemcopy"><div class="tta-itemname">${esc(item.name)}</div><div class="tta-source">${esc(src)}</div><div class="tta-itemfacts"><span class="tta-factpill market">Market ${esc(marketText)}</span><span class="tta-factpill">${esc(itemType)}</span><span class="tta-factpill">#${item.id}</span></div></div><div class="tta-profitbox"><div class="tta-cardactions"><button class="tta-pin ${pinned?'active':''}" data-act="togglePin" data-id="${item.id}" aria-pressed="${pinned?'true':'false'}" aria-label="${pinned?'Unpin':'Pin'} ${esc(item.name)}" title="${pinned?'Unpin item':'Pin item to top'}">${pinned?'📌':'☆'}</button><button class="tta-hideitem" data-act="hideItem" data-id="${item.id}" aria-label="Hide ${esc(item.name)}" title="Hide item">🙈</button></div><div class="tta-profit ${s.profit>=0?'pos':'neg'}">${money(s.profit,true)}</div><div class="tta-chevron">${exp?'▲ details':'▼ details'}</div></div></div><div class="tta-metrics"><div class="tta-metric"><small>Acquired</small><b>${qty(s.bought)}</b></div><div class="tta-metric"><small>Sold</small><b>${qty(s.sold)}</b></div><div class="tta-metric"><small>Profit</small><b class="${s.profit>=0?'pos':'neg'}">${money(s.profit,true)}</b></div></div><div class="tta-accordion">${details}</div></div>`;
   }
@@ -540,7 +541,7 @@
     const hiddenHtml=hiddenItems.length?`<div class="tta-hiddenlist">${hiddenItems.map(x=>`<div class="tta-hiddenrow"><span>${esc(x.name)} <small>#${x.id}</small></span><button class="tta-btn secondary" data-act="restoreItem" data-id="${x.id}">Restore</button></div>`).join('')}</div><div class="tta-settings-actions"><button class="tta-btn secondary" data-act="restoreAllItems">Restore all hidden items</button></div>`:'<div class="tta-banner">No hidden items.</div>';
     return `${header('Settings','Storage, API access & reset',true)}<div class="tta-content tta-settings">
       <div class="tta-keycard"><div class="tta-keyhead"><strong>API Key</strong><span class="tta-keystatus">${esc(status)}</span></div><div class="tta-keyinputrow"><input id="tta-api-key" type="password" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your Torn API key" value="${esc(masked)}" data-placeholder-key="${state.apiKey?'1':'0'}"><button class="tta-btn" data-act="saveApiKey">Save & test</button></div><div class="tta-keynote">Stored only in this device's local storage and sent only to Torn's official API. It is never uploaded to GitHub or sent to us. Use a custom key with <strong>User → Log</strong>; for free-item history, do not restrict away categories such as Crime success, City finds, Mission rewards, Seasonal gift, and similar reward logs.</div>${state.apiKey?'<div class="tta-settings-actions"><button class="tta-btn danger" data-act="clearApiKey">Clear saved API key</button></div>':''}</div>
-      <div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Data storage: only locally on this device.<br>Data sharing: nobody.<br>Purpose: personal statistical analysis of automatically discovered item acquisitions and sales.<br>Key storage: locally only / not shared.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong>. Torn PDA's injected key remains supported as a fallback.</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.<br>Item catalog / market values updated: ${esc(catalogWhen)}.${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.pages||0)} log pages · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.<br>Player trades: ${qty(state.sync.diagnostics.tradesWithItems||0)} with items · ${qty(state.sync.diagnostics.tradeDetails||0)} detailed trades fetched · ${qty(state.sync.diagnostics.tradeTransactions||0)} allocated item rows.${state.sync.diagnostics.periodFrom?`<br>Period scanned: ${esc(dateStr(state.sync.diagnostics.periodFrom))} – ${esc(dateStr(Math.min(state.sync.diagnostics.periodTo||nowSec(),nowSec())))}`:'<br>Period scanned: all available history.'}`:''}</div><label>Hidden items · ${qty(hiddenItems.length)}</label>${hiddenHtml}<div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
+      <div class="tta-tos"><strong>Privacy / Torn API use</strong><br>Data storage: only locally on this device.<br>Data sharing: nobody.<br>Purpose: personal statistical analysis of automatically discovered item acquisitions and sales.<br>Key storage: locally only / not shared.<br>Required access: public Torn item/log-type endpoints plus <strong>User → Log</strong>. Torn PDA's injected key remains supported as a fallback.</div><label>Last successful sync</label><div class="tta-banner">${esc(when)}${state.sync.firstSyncComplete?' · Historical backfill completed':''}</div><label>Local data</label><div class="tta-banner">${qty(state.transactions.length)} normalized transaction entries · ${qty(state.catalog.length)} Torn items cached. Raw Torn logs are not retained.<br>Item catalog / market values updated: ${esc(catalogWhen)}.${state.sync.diagnostics?`<br>Last scan: ${qty(state.sync.diagnostics.rawRows||0)} raw logs · ${qty(state.sync.diagnostics.pages||0)} log pages · ${qty(state.sync.diagnostics.logTypes||0)} candidate log types.<br>Player trades: ${qty(state.sync.diagnostics.tradesWithItems||0)} with items · ${qty(state.sync.diagnostics.tradeDetails||0)} detailed trades fetched · ${qty(state.sync.diagnostics.tradeTransactions||0)} allocated item rows · ${qty(state.sync.diagnostics.tradeSoldQty||0)} items sold via trades.${state.sync.diagnostics.periodFrom?`<br>Period scanned: ${esc(dateStr(state.sync.diagnostics.periodFrom))} – ${esc(dateStr(Math.min(state.sync.diagnostics.periodTo||nowSec(),nowSec())))}`:'<br>Period scanned: all available history.'}`:''}</div><label>Hidden items · ${qty(hiddenItems.length)}</label>${hiddenHtml}<div class="tta-settings-actions"><button class="tta-btn secondary" data-act="refreshCatalog">Refresh Torn item catalog</button><button class="tta-btn danger" data-act="resetData">Reset analyzer data</button></div></div>`;
   }
 
   function loadingHtml() {
@@ -960,9 +961,8 @@
     const listed=await fetchCompletedTradeHeaders(period),transactions=[];
     let details=0,tradesWithItems=0;
     for(let i=0;i<listed.headers.length&&!state.syncCancel;i++){
-      const h=listed.headers[i],summaryItems=Number(h?.items);
-      if(Number.isFinite(summaryItems)&&summaryItems===0)continue;
-      setSyncProgress(`Player trades · ${i+1}/${listed.headers.length} · ${qty(transactions.length)} allocated item rows`);
+      const h=listed.headers[i];
+      setSyncProgress(`Player trades · ${i+1}/${listed.headers.length} · checking detailed trade · ${qty(transactions.length)} allocated item rows`);
       const data=await apiGet(`/user/${Number(h.id)}/trade`);details++;
       const rows=parsePlayerTrade(data?.trade,userId);if(rows.length){tradesWithItems++;transactions.push(...rows);}
       if(i<listed.headers.length-1&&!state.syncCancel)await sleep(REQUEST_GAP_MS);
@@ -1106,7 +1106,7 @@
     resumableTxMap=null;resumableTxJob='';resetAnalyticsCache();
   }
   function newSyncDiagnostics(job,mode,logTypes,batches) {
-    return {rawRows:0,parsedRows:0,matchedRows:0,batches,logTypes,pages:0,oldestTimestamp:0,mode,periodFrom:job.period.from,periodTo:job.period.to,tradeHeaders:0,tradeListPages:0,tradeDetails:0,tradesWithItems:0,tradeTransactions:0};
+    return {rawRows:0,parsedRows:0,matchedRows:0,batches,logTypes,pages:0,oldestTimestamp:0,mode,periodFrom:job.period.from,periodTo:job.period.to,tradeHeaders:0,tradeListPages:0,tradeDetails:0,tradesWithItems:0,tradeTransactions:0,tradeSoldQty:0,tradeBoughtQty:0};
   }
   function createResumableSyncJob() {
     stripSyncRunMarkers();
@@ -1179,11 +1179,18 @@
   async function runResumableTradeDetails(job) {
     const headers=job.tradeHeaders||[];
     while((Number(job.tradeDetailIndex)||0)<headers.length&&!syncJobCancelled(job)){
-      const i=Number(job.tradeDetailIndex)||0,h=headers[i],summaryItems=Number(h?.items);
-      if(Number.isFinite(summaryItems)&&summaryItems===0){job.tradeDetailIndex=i+1;checkpointSyncJob(job,`Player trades · ${i+1}/${headers.length} · no item rows`);continue;}
-      checkpointSyncJob(job,`Player trades · ${i+1}/${headers.length} · fetching trade #${Number(h.id)}`);
+      const i=Number(job.tradeDetailIndex)||0,h=headers[i];
+      checkpointSyncJob(job,`Player trades · ${i+1}/${headers.length} · checking detailed trade #${Number(h.id)}`);
       const data=await syncApiGet(`/user/${Number(h.id)}/trade`);job.diagnostics.tradeDetails=(Number(job.diagnostics.tradeDetails)||0)+1;
-      const rows=parsePlayerTrade(data?.trade,job.userId);if(rows.length){job.diagnostics.tradesWithItems=(Number(job.diagnostics.tradesWithItems)||0)+1;job.diagnostics.tradeTransactions=(Number(job.diagnostics.tradeTransactions)||0)+rows.length;checkpointTransactionRows(job,rows);}
+      const rows=parsePlayerTrade(data?.trade,job.userId);
+      const soldRows=rows.filter(x=>x.side==='sell'),boughtRows=rows.filter(x=>x.side==='buy');
+      if(rows.length){
+        job.diagnostics.tradesWithItems=(Number(job.diagnostics.tradesWithItems)||0)+1;
+        job.diagnostics.tradeTransactions=(Number(job.diagnostics.tradeTransactions)||0)+rows.length;
+        job.diagnostics.tradeSoldQty=(Number(job.diagnostics.tradeSoldQty)||0)+soldRows.reduce((n,x)=>n+(Number(x.qty)||0),0);
+        job.diagnostics.tradeBoughtQty=(Number(job.diagnostics.tradeBoughtQty)||0)+boughtRows.reduce((n,x)=>n+(Number(x.qty)||0),0);
+        checkpointTransactionRows(job,rows);
+      }
       job.tradeDetailIndex=i+1;checkpointSyncJob(job,`Player trades · ${i+1}/${headers.length} · ${qty(job.diagnostics.tradeTransactions||0)} allocated item rows checkpointed`);
       if(job.tradeDetailIndex<headers.length&&!syncJobCancelled(job))await sleep(REQUEST_GAP_MS);
     }
