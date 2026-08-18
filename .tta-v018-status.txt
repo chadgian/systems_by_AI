@@ -1,1 +1,0 @@
-PASS: v0.1.18 syntax + acquisition-date profit attribution + FIFO ledger reuse + sale-date metrics preserved
